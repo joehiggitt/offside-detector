@@ -39,7 +39,9 @@ COLOUR_SPACES = {
 
 class Image:
 	"""
-	A class to encapsulate OpenCV images and store the colour space.
+	A class to encapsulate OpenCV images (stored as `numpy.ndarray`) and
+	save the colour space. Methods performing operations on the current
+	image return a new image object containing the altered image.
 
 	Class Methods
 	-------
@@ -56,17 +58,32 @@ class Image:
 		Saves the image in the filepath provided.
 	`get()` : `numpy.ndarray`
 		Returns the image array.
-	`channels(channel_num: int)` : `tuple[np.ndarray] | np.ndarray`
+	`channels(channel_num: int)` : `numpy.ndarray` or 
+	`tuple[numpy.ndarray]`
 		Returns the separate colour channels in the image array.
-	`histogram(channel_num: int, normalise: bool)` : `tuple[np.ndarray] | np.ndarray`
-		Returns the histograms of the separate colour channels in the image.
+	`histogram(channel_num: int, normalise: bool)` : `numpy.ndarray`
+	or `tuple[numpy.ndarray]`
+		Returns the histograms of the separate colour channels in the
+		image.
 	`colour_space()` : `str`
 		Returns the colour space of the image.
 	`convert(colour_space: str)` : `bool`
 		Converts the image from one colour space to another
 	`display(**kwargs: dict)`
 		Displays the image in a window.
-
+	`dominant_colour(k: float)` : `numpy.ndarray`
+		Finds the dominant colour of the image using a tight bound about
+		the peak colour.
+	`standard_deviation(means: numpy.ndarray, k: float)` : 
+	`numpy.ndarray`
+		Finds the standard deviation in the colour in the image.
+	`create_mask(colour: numpy.ndarray, sigma: numpy.ndarray,
+	deviations: float)` : `numpy.ndarray`
+		Creates a mask of the image, where pixels are included if
+		they're within a defined number of standard deviations from the
+		colour.
+	`apply_mask(mask: numpy.ndarray)` : `Image`
+		Masks the image.
 	"""
 	def __init__(self, image: np.ndarray, colour_space: str) -> Image:
 		"""
