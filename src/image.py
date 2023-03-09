@@ -51,6 +51,8 @@ class Image:
 		Creates an Image object from a filepath.
 	`Image.display_images(*images: tuple)`
 		Displays multiple images in multiple windows.
+	`Image.contour_boxes(contours: tuple[numpy.ndarray])` : `numpy.ndarray`
+		Finds the bounding boxes enclosing contours in an image.
 
 	Methods	
 	-------
@@ -84,7 +86,20 @@ class Image:
 		colour.
 	`apply_mask(mask: numpy.ndarray)` : `Image`
 		Masks the image.
+	`blur(self, kernel_size: int or tuple[int, int], sigma: float)` : 
+	`Image`
+		Performs a Gaussian blur on the image.
+	`morphology(operation: str, kernel_size: int or tuple[int, int], 
+	iterations: int)` : `Image`
+		Performs a morphological operation on the image.
+	`threshold(threshold: int)` : `Image`
+		Performs a threshold operation on the image.
+	`hough(threshold: int)` : `np.ndarray` or `None`
+		Uses the Hough Lines Algorithm to find lines in an image.
+	`contours()` : `tuple[np.ndarray]`
+		Finds the contours in an image.
 	"""
+	
 	def __init__(self, image: np.ndarray, colour_space: str) -> Image:
 		"""
 		Creates an Image object from an image array.
@@ -694,4 +709,173 @@ class Image:
 			The masked image.
 		"""
 		return Image(cv.bitwise_and(self.get(), self.get(), mask=mask), self.colour_space())
+
+	def blur(self, kernel_size: int | tuple[int, int], sigma: float=0) -> Image:
+		"""
+		Performs a Gaussian blur on the image.
+
+		Parameters
+		----------
+		`size` : `int` or `tuple` of two `int`, all `int` must be odd
+			Size of the Gaussian blur kernel.
+		`sigma`: `float`, optional
+			Standard deviation of Gaussian distribution used in blur.
+
+		Returns
+		-------
+		`Image`
+			Blurred image.
+
+		Raises
+		------
+		`ValueError`
+			If the value of `size` is not odd.
+		"""
+		if (isinstance(kernel_size, tuple)):
+			if (((kernel_size[0] % 2) == 0) or ((kernel_size[1] % 2) == 0)):
+				raise ValueError(
+					"size parameter contained even dimension - it must be odd."
+				)
+		elif (isinstance(kernel_size, int)):
+			if ((kernel_size % 2) == 0):
+				raise ValueError("size parameter was even - it must be odd.")
+			kernel_size = (kernel_size, kernel_size)
+		else:
+			raise TypeError("size parameter is of an invalid type.")
+		
+		blur_image = cv.GaussianBlur(self.get(), kernel_size, sigma,
+			borderType=cv.BORDER_DEFAULT)
+		return Image(blur_image, self.colour_space())
+
+	def morphology(self,
+			operation: str,
+			kernel_size: int | tuple[int, int],
+			iterations: int=1
+		) -> Image:
+		"""
+		Performs a morphological operation on the image.
+
+		Parameters
+		----------
+		`operation` : `{"open", "close", "dilate", "erode", "tophat"}`
+			The type of morphology operation.
+		`kernel_size` : `int` or `tuple` of two `int`, all `int` must be
+		odd
+			Size of the morphological kernel.
+		`iterations`: `int`, optional, default=1
+			The number of times to perform the morphology.
+
+		Returns
+		-------
+		`Image`
+			The image result.
+
+		Raises
+		------
+		`ValueError`
+			If the value of `operation` is not recognised.
+			If the value of `size` is not odd.
+		"""
+		ALLOWED_OPS = {
+			"open":   cv.MORPH_OPEN,
+			"close":  cv.MORPH_CLOSE,
+			"dilate": cv.MORPH_DILATE,
+			"erode":  cv.MORPH_ERODE,
+			"tophat": cv.MORPH_TOPHAT
+		}
+		if operation.lower() not in ALLOWED_OPS.keys():
+			raise ValueError(f"Invalid morphology operation '{operation}' provided.")
+		if (isinstance(kernel_size, tuple)):
+			if (((kernel_size[0] % 2) == 0) or ((kernel_size[1] % 2) == 0)):
+				raise ValueError("size parameter contained even dimension - it must be odd.")
+		elif (isinstance(kernel_size, int)):
+			if ((kernel_size % 2) == 0):
+				raise ValueError("size parameter was even - it must be odd.")
+			kernel_size = (kernel_size, kernel_size)
+		else:
+			raise TypeError("size parameter is of an invalid type.")
+		
+		op_code = ALLOWED_OPS[operation.lower()]
+		kernel = cv.getStructuringElement(cv.MORPH_RECT, kernel_size)
+		return Image(cv.morphologyEx(self.get(), op_code, kernel, iterations=iterations), self.colour_space())  # TODO decide whether to use iterations parameter or for loop
+
+	def threshold(self, threshold: int) -> Image:
+		"""
+		Performs a threshold operation on the image.
+
+		Parameters
+		----------
+		`threshold`: `int`
+			The threshold value.
+
+		Returns
+		-------
+		`Image`
+			The image result.
+		"""
+		op_code = cv.THRESH_BINARY
+		_, thresh_img = cv.threshold(self.get(), threshold, 255, op_code)
+		return Image(thresh_img, "BINARY")
+
+	def hough(self, threshold: int) -> np.ndarray | None:
+		"""
+		Uses the Hough Lines Algorithm to find lines in an image.
+
+		Parameters
+		----------
+		`threshold`: `int`
+			The threshold number of points to be considered a line.
+
+		Returns
+		-------
+		`numpy.ndarray`
+			If lines are found, an array of lines. Lines are in the form
+			'(rho, theta)', where 'rho' is the distance from the origin
+			and 'theta' is the line normal from the origin. theta is in
+			the interval [0, π) radians.
+		`None`
+			If no lines are found.
+		"""
+		lines = cv.HoughLines(self.get(), 1, np.pi / 180, threshold)
+		if ((lines is None) or (lines.shape[0] == 0)):
+			return None
+		return lines.reshape((lines.shape[0], lines.shape[2]))
+
+	def contours(self) -> tuple[np.ndarray]:
+		"""
+		Finds the contours in an image.
+		
+		Returns
+		-------
+		`tuple` of `numpy.ndarray`
+			The contour lines. Each contour line consists of a list of
+			points on the contour.
+		"""
+		contours, _ =  cv.findContours(self.get(), cv.RETR_EXTERNAL,
+			cv.CHAIN_APPROX_SIMPLE)
+		return contours
+	
+	@classmethod
+	def contour_boxes(cls, contours: tuple[np.ndarray]) -> np.ndarray:
+		"""
+		Finds the bounding boxes enclosing contours in an image.
+		
+		Parameters
+		----------
+		`contours`: `tuple` of `numpy.ndarray`
+			The contours to find the bounding boxes for.
+
+		Returns
+		-------
+		`numpy.ndarray`
+			The list of bounding boxes. Each box is in the form
+			'(x, y, w, h)' where x and y are the location of the upper
+			left corner of the box in the image and w and h are the
+			width and height of the box respectively.
+		"""
+		boxes = []
+		for contour in contours:
+			boxes.append(cv.boundingRect(contour))
+		return np.array(boxes)
+
 
