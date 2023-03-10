@@ -6,7 +6,7 @@ import numpy as np
 
 COLOUR_SPACES = {
 	"BGR": {
-		"dimensions": [256, 256, 256],
+		"dimensions": np.array([256, 256, 256], "uint16"),
 		"convert": {
 			"RGB": cv.COLOR_BGR2RGB,
 			"HSV": cv.COLOR_BGR2HSV,
@@ -14,7 +14,7 @@ COLOUR_SPACES = {
 		}
 	},
 	"RGB": {
-		"dimensions": [256, 256, 256],
+		"dimensions": np.array([256, 256, 256], "uint16"),
 		"convert": {
 			"BGR": cv.COLOR_RGB2BGR,
 			"HSV": cv.COLOR_RGB2HSV,
@@ -22,19 +22,23 @@ COLOUR_SPACES = {
 		}
 	},
 	"HSV": {
-		"dimensions": [180, 256, 256],
+		"dimensions": np.array([180, 256, 256], "uint16"),
 		"convert": {
 			"BGR": cv.COLOR_HSV2BGR,
 			"RGB": cv.COLOR_HSV2RGB,
 		}
 	},
 	"GREY": {
-		"dimensions": [256],
+		"dimensions": np.array([256], "uint16"),
 		"convert": {
 			"BGR": cv.COLOR_GRAY2BGR,
 			"RGB": cv.COLOR_GRAY2RGB,
 		}
 	},
+	"BINARY": {
+		"dimensions": np.array([256], "uint16"),
+		"convert": {}
+	}
 }
 
 class Image:
@@ -44,14 +48,15 @@ class Image:
 	image return a new image object containing the altered image.
 
 	Class Methods
-	-------
+	-------------
 	`Image(image: numpy.ndarray, colour_space: str)` : `Image`
 		Creates an Image object from an image array.
 	`Image.open(filepath: str)` : `Image`
 		Creates an Image object from a filepath.
 	`Image.display_images(*images: tuple)`
 		Displays multiple images in multiple windows.
-	`Image.contour_boxes(contours: tuple[numpy.ndarray])` : `numpy.ndarray`
+	`Image.contour_boxes(contours: tuple[numpy.ndarray])` :
+	`numpy.ndarray`
 		Finds the bounding boxes enclosing contours in an image.
 
 	Methods	
@@ -60,11 +65,10 @@ class Image:
 		Saves the image in the filepath provided.
 	`get()` : `numpy.ndarray`
 		Returns the image array.
-	`channels(channel_num: int)` : `numpy.ndarray` or 
-	`tuple[numpy.ndarray]`
+	`channels(channel_num: int)` : `numpy.ndarray` or `tuple`
 		Returns the separate colour channels in the image array.
 	`histogram(channel_num: int, normalise: bool)` : `numpy.ndarray`
-	or `tuple[numpy.ndarray]`
+	or `tuple`
 		Returns the histograms of the separate colour channels in the
 		image.
 	`colour_space()` : `str`
@@ -73,12 +77,14 @@ class Image:
 		Converts the image from one colour space to another
 	`display(**kwargs: dict)`
 		Displays the image in a window.
-	`dominant_colour(k: float)` : `numpy.ndarray`
+	`dominant_colour(k: float, bounds: tuple, num_colours: int, c:
+	float)` : `numpy.ndarray`
 		Finds the dominant colour of the image using a tight bound about
 		the peak colour.
-	`standard_deviation(means: numpy.ndarray, k: float)` : 
-	`numpy.ndarray`
-		Finds the standard deviation in the colour in the image.
+	`dominant_colour_deviation(dominant_colours: np.ndarray, k: float,
+	bounds: tuple, num_colours: int, c: float)` : `tuple`
+		Finds the standard deviation in the dominant colour in the
+		image.
 	`create_mask(colour: numpy.ndarray, sigma: numpy.ndarray,
 	deviations: float)` : `numpy.ndarray`
 		Creates a mask of the image, where pixels are included if
@@ -86,17 +92,16 @@ class Image:
 		colour.
 	`apply_mask(mask: numpy.ndarray)` : `Image`
 		Masks the image.
-	`blur(self, kernel_size: int or tuple[int, int], sigma: float)` : 
-	`Image`
+	`blur(kernel_size: int or tuple, sigma: float)` : `Image`
 		Performs a Gaussian blur on the image.
-	`morphology(operation: str, kernel_size: int or tuple[int, int], 
+	`morphology(operation: str, kernel_size: int or tuple,
 	iterations: int)` : `Image`
 		Performs a morphological operation on the image.
 	`threshold(threshold: int)` : `Image`
 		Performs a threshold operation on the image.
 	`hough(threshold: int)` : `np.ndarray` or `None`
 		Uses the Hough Lines Algorithm to find lines in an image.
-	`contours()` : `tuple[np.ndarray]`
+	`contours()` : `tuple`
 		Finds the contours in an image.
 	"""
 	
@@ -122,10 +127,8 @@ class Image:
 			If the value of `colour_space` is not recognised.
 		"""
 		if (colour_space.upper() not in COLOUR_SPACES.keys()):
-			raise ValueError(
-				f"""Invalid colour space '{colour_space}' provided for 
-				image."""
-			)
+			raise ValueError(f"Invalid colour space '{colour_space}' " +
+		    	"provided for image.")
 		
 		self.__image:  np.ndarray = image
 		self.__colour: str        = colour_space.upper()
@@ -152,7 +155,8 @@ class Image:
 		"""
 		image_in = cv.imread(filepath, cv.IMREAD_UNCHANGED)
 		if (image_in is None):
-			raise FileNotFoundError("The file provided could not be opened.")
+			raise FileNotFoundError(f"The filepath '{filepath}' provided " +
+			   "could not be opened.")
 		return Image(image_in, "BGR")
 
 	def save(self, filepath: str) -> bool:
@@ -173,9 +177,8 @@ class Image:
 		try:
 			result = cv.imwrite(filepath, self.get())
 		except cv.error:
-			raise FileNotFoundError(
-				"The filepath provided could not be written to."
-			)
+			raise FileNotFoundError(f"The filepath '{filepath}' provided " +
+			   "could not be written to.")
 		return result
 
 	def get(self) -> np.ndarray:
@@ -219,11 +222,9 @@ class Image:
 			if ((channel_num >= 0) and (channel_num < len(channels))):
 				channels = channels[channel_num]
 			else:
-				raise ValueError(
-					f"""Invalid channel number '{channel_num}' provided. 
-					Channel number should be between 0 and 
-					{len(channels) - 1}."""
-				)
+				raise ValueError(f"Invalid channel number '{channel_num}' " +
+					"provided. Channel number should be between 0 and " +
+					f"{len(channels) - 1}.")
 		
 		return channels
 
@@ -271,15 +272,14 @@ class Image:
 					cv.normalize(hist, hist, 1, 0, cv.NORM_L2)
 				return hist
 			else:
-				raise ValueError(
-					f"""Invalid channel number '{channel_num}' provided. 
-					Channel number should be between 0 and 
-					{len(channels) - 1}."""
-				)
+				raise ValueError(f"Invalid channel number '{channel_num}' " +
+					"provided. Channel number should be between 0 and " +
+					f"{len(channels) - 1}.")
 		
 		hists = []
 		for i in range(len(channels)):
-			hists.append(cv.calcHist(channels, [i], None, [dimensions[i]], (0, dimensions[i]), accumulate=False))
+			hists.append(cv.calcHist(channels, [i], None, [dimensions[i]], 
+				(0, dimensions[i]), accumulate=False))
 			if normalise:
 				cv.normalize(hists[i], hists[i], 1, 0, cv.NORM_L2)
 		return tuple(hists)
@@ -316,9 +316,9 @@ class Image:
 		"""
 		colour_space = colour_space.upper()
 		if (colour_space not in COLOUR_SPACES.keys()):
-			raise ValueError(
-				f"""Invalid colour space '{colour_space}' provided for
-				conversion. See list of supported colour spaces.""")
+			raise ValueError(f"Invalid colour space '{colour_space}' " +
+				"provided for conversion. See list of supported colour " +
+				"spaces.")
 		
 		try:
 			code = COLOUR_SPACES[self.__colour]["convert"][colour_space]
@@ -357,15 +357,12 @@ class Image:
 		if (len(inputted_kwargs) > 0):
 			for key, val in inputted_kwargs.items():
 				if (key not in allowed_kwargs):
-					raise AttributeError(
-						f"An unexpected keyword argument '{key}' was received."
-					)
+					raise AttributeError(f"An unexpected keyword argument " +
+			  			f"'{key}' was received.")
 				if (type(val) not in allowed_kwargs[key]):
-					raise TypeError(
-						f"""Keyword argument '{key}' was expecting a value of
-						type {allowed_kwargs[key]}, but received
-						{type(val)}."""
-					)
+					raise TypeError(f"Keyword argument '{key}' was expecting" +
+						f" a value of type {allowed_kwargs[key]}, but " +
+						f"received {type(val)}.")
 
 	def __create_display(self,
 			**kwargs: (str | tuple[int, int])
@@ -470,11 +467,17 @@ class Image:
 	@classmethod
 	def __find_peak_bounds(cls,
 			histogram: np.ndarray,
-			k: float
-		) -> tuple[int, int]:
+			k: float,
+			bounds: tuple[int, int]=None,
+			num_means: int=1,
+			c: float=0
+		) -> np.ndarray:
 		"""
 		Finds the lower and upper bounds of an image channel around the
-		dominant colour. Algorithm proposed by Ekin et al (2003)
+		dominant colours. Can be instructed to find one or multiple mean
+		bounds.
+		
+		Algorithm based on algorithm proposed by Ekin et al (2003)
 		"Automatic Soccer Video Analysis and Summarization".
 
 		Parameters
@@ -484,35 +487,56 @@ class Image:
 		`k` : `float`, `0 < k < 1`
 			Parameter describing how different two adjacent channels
 			must be to be considered a bound. (Recommended value of 0.2)
-
+		`bounds` : `tuple` of two `int`, optional
+			The lower and upper bound of the mean bounds calculation. If
+			not provided, uses the entire histogram.
+		`num_means` : `int`, `num_means > 0`, optional
+			The maximum number of mean bounds to find in range. If not 
+			provided, finds a single mean bound.
+		`c` : `float`, `0 < c < 1`, optional
+			Parameter describing how different a distinct peak should be
+			from the maximum value in the histogram to be considered
+			significant.
 		Returns
 		-------
 		`tuple` of two `int`
 			The dominant colour lower and upper bound.
 		"""
-		peak_candidates = np.argsort(histogram.flatten())
-		is_found = False
-		while (not is_found and (len(peak_candidates) > 0)):
+		hist_sec = histogram.flatten()
+		if (bounds is not None):
+			hist_sec = hist_sec[bounds[0]: bounds[1] + 1]
+
+		peak_candidates = np.argsort(hist_sec)
+		hist_peak = peak_candidates[-1]
+
+		all_mean_bounds = []
+		# TODO change loop condition to similarity to max peak
+		for _ in range(num_means):
 			peak, peak_candidates = peak_candidates[-1], peak_candidates[:-1]
+			if (hist_sec[peak] < c * hist_sec[hist_peak]):
+				break
 
-			range_vals = [peak, len(histogram) - peak]
+			range_vals = [peak, len(hist_sec) - peak]
 			mults = [-1, 1]
-			bounds = []
+			mean_bounds = []
 			for i in range(2):
-				bound = peak
+				b = peak
 				for x in range(range_vals[i] + 1):
-					bound = peak + (x * mults[i])
-					if ((bound == 0) or (bound == len(histogram) - 1)):
+					b = peak + (x * mults[i])
+					if ((b == 0) or (b == len(hist_sec) - 1)):
 						break
-					if ((histogram[bound] >= k * histogram[peak]) and 
-	 					(histogram[bound + mults[i]] < k * histogram[peak])):
+					if ((hist_sec[b] >= k * hist_sec[peak]) and 
+	 					(hist_sec[b + mults[i]] < k * hist_sec[peak])):
 						break
-				bounds.append(bound)
+				mean_bounds.append(b)
 
-			if ((bounds[0] != peak) or (bounds[1] != peak)):
-				is_found = True
+			all_mean_bounds.append((mean_bounds[0] + bounds[0], 
+				mean_bounds[1] + bounds[0] + 1))
+			index = ((peak_candidates < mean_bounds[0]) | 
+				(peak_candidates > mean_bounds[1]))
+			peak_candidates = peak_candidates[index]
 
-		return tuple(bounds)
+		return np.array(all_mean_bounds)
 
 	@classmethod
 	def __get_mean(cls,
@@ -521,8 +545,10 @@ class Image:
 		) -> float:
 		"""
 		Finds the mean colour in an image channel using a tight bound
-		about the peak colour. Algorithm proposed by Ekin et al (2003)
-		"Automatic Soccer Video Analysis and Summarization".
+		about the peak colour.
+		
+		Algorithm proposed by Ekin et al (2003) "Automatic Soccer Video
+		Analysis and Summarization".
 
 		Parameters
 		----------
@@ -544,7 +570,77 @@ class Image:
 		n = np.sum(hist * np.arange(bounds[0], bounds[1] + 1))
 		d = np.sum(hist)
 		return (n / d)
-	
+
+	def dominant_colour(self, 
+		    k: float,
+			bounds: tuple[np.ndarray, np.ndarray]=None,
+			num_colours: int=1,
+			c: float=1
+		) -> tuple[np.ndarray]:
+		"""
+		Finds the dominant colour of the image using a tight bound about
+		the peak colour. Can find one or more dominant colours in an
+		image and be restricted to a certain range of the colour space.
+		
+		Algorithm based on algorithm proposed by Ekin et al (2003) 
+		"Automatic Soccer Video Analysis and Summarization".
+
+		Parameters
+		----------
+		`k` : `float`, `0 < k < 1`
+			Parameter describing how different two adjacent channels
+			must be to be considered a bound. (Recommended value of 0.2)
+		`bounds` : `tuple` of two `numpy.ndarray`, optional
+			The lower and upper bound of the colour calculation. If not
+			provided, uses the entire histogram. Each `ndarray` must
+			have the same number of dimensions as the channels in the
+			image.
+		`num_colours` : `int`, `num_colours > 0`, optional
+			The maximum number of dominant colours to find. If not
+			provided, finds	a single colour.
+		`c` : `float`, `0 < c < 1`, optional
+			Parameter describing how different a distinct peak should be
+			from the maximum value in the histogram to be considered
+			significant.
+
+		Returns
+		-------
+		`tuple` of `numpy.ndarray`
+			The dominant colour of each colour channel in the image. 
+			Each channel could contain a different number of dominant
+			colours, depending on image characteristics.
+
+		Raises
+		------
+		`ValueError`
+			If a lower and upper bound isn't provided for each channel
+			in the image.
+		"""
+		# Gets image histograms
+		hists = self.histogram()
+		
+		# Sets bounds if not provided, checks if provided bounds are valid
+		if (bounds is None):
+			dims = COLOUR_SPACES[self.colour_space()]["dimensions"]
+			bounds = (np.zeros_like(dims), dims - 1)
+		elif ((len(hists) != len(bounds[0])) or 
+			(len(hists) != len(bounds[1]))):
+			return ValueError("A bound value must be provided for each " +
+		    	"channel in the image.")
+
+		# Calculates means for each image channel
+		means = []
+		for i in range(len(hists)):
+			b = (bounds[0][i], bounds[1][i])
+			mean_bounds = Image.__find_peak_bounds(hists[i], k, b, num_colours,
+				c)
+			m = []
+			for j in range(len(mean_bounds)):
+				m.append(Image.__get_mean(hists[i], mean_bounds[j]))
+			means.append(np.array(m))
+
+		return tuple(means)
+
 	@classmethod
 	def __get_standard_deviation(cls,
 			channel: np.ndarray,
@@ -571,60 +667,39 @@ class Image:
 		"""
 		flat_channel = channel.flatten()
 
-		if (bounds is None):
-			bounds = (0, flat_channel.max())
+		if (bounds is not None):
+			index = (bounds[0] <= flat_channel) & (flat_channel <= bounds[1])
+			flat_channel = flat_channel[index]
 
-		bounded_channel = flat_channel[
-			(bounds[0] <= flat_channel) & (flat_channel <= bounds[1])
-		]
+		total = np.sum(np.square((-1 * flat_channel) + mean))
+		return np.sqrt(total / flat_channel.size)
 
-		total = np.sum(np.square((-1 * bounded_channel) + mean))
-		return np.sqrt(total / bounded_channel.size)
-
-	def dominant_colour(self, k: float) -> np.ndarray:
-		"""
-		Finds the dominant colour of the image using a tight bound about
-		the peak colour. Algorithm proposed by Ekin et al (2003)
-		"Automatic Soccer Video Analysis and Summarization".
-
-		Parameters
-		----------
-		`k` : `float`, `0 < k < 1`
-			Parameter describing how different two adjacent channels
-			must be to be considered a bound. (Recommended value of 0.2)
-
-		Returns
-		-------
-		`numpy.ndarray`
-			The three colour channels of the dominant colour, or an
-			empty list if the provided colour space is invalid.
-		"""
-		# Gets image histograms
-		hists = self.histogram()
-
-		# Calculates means for each image channel
-		means = []
-		for hist in hists:
-			bounds = Image.__find_peak_bounds(hist, k)
-			means.append(Image.__get_mean(hist, bounds))
-
-		return np.array(means)
-	
-	def standard_deviation(self,
-		means: np.ndarray,
-		k: float
+	def dominant_colour_deviation(self,
+		dominant_colours: np.ndarray,
+		k: float,
+		bounds: tuple[np.ndarray, np.ndarray]=None,
+		num_colours: int=1,
+		c: float=1
 	) -> np.ndarray:
 		"""
-		Finds the standard deviation in the colour in the image.
+		Finds the standard deviation in the dominant colour in the
+		image.
 
 		Parameters
 		----------
-		`means` : `numpy.ndarray`
-			The mean colour in the image to find the standard deviation
-			around.
+		`dominant_colours` : `numpy.ndarray`
+			The dominant colours in the image to find the standard
+			deviation around.
 		`k` : `float`, `0 < k < 1`
 			Parameter describing how different two adjacent channels
 			must be to be considered a bound. (Recommended value of 0.2)
+		`num_colours` : `int`, `num_means > 0`, optional
+			The maximum number of means to find standard deviations for.
+			If not provided, finds them for a single colour.
+		`c` : `float`, `0 < c < 1`, optional
+			Parameter describing how different a distinct peak should be
+			from the maximum value in the histogram to be considered
+			significant.
 
 		Returns
 		-------
@@ -638,19 +713,32 @@ class Image:
 		"""
 		channels = self.channels()
 		hists = self.histogram()
-		if (len(channels) != len(means)):
-			return ValueError(
-				"A mean must be provided for each channel in the image."
-			)
+		if (len(channels) != len(dominant_colours)):
+			return ValueError("A mean must be provided for each channel in " +
+		    	"the image.")
 		
+		if (bounds is None):
+			dims = COLOUR_SPACES[self.colour_space()]["dimensions"]
+			bounds = (np.zeros_like(dims), dims - 1)
+		elif ((len(hists) != len(bounds[0])) or 
+			(len(hists) != len(bounds[1]))):
+			return ValueError("A bound value must be provided for each " +
+		    	"channel in the image.")
+		
+		# Calculates standard deviation for each mean
 		standard_deviations = []
 		for i in range(len(channels)):
-			bounds = Image.__find_peak_bounds(hists[i], k)
-			std_dev = Image.__get_standard_deviation(channels[i],
-				means[i], bounds
-			)
-			standard_deviations.append(std_dev)
-		return np.array(standard_deviations)
+			b = (bounds[0][i], bounds[1][i])
+			mean_bounds = Image.__find_peak_bounds(hists[i], k, b, num_colours, c)
+			sd = []
+			for j in range(len(mean_bounds)):
+				std_dev = Image.__get_standard_deviation(channels[i],
+					dominant_colours[i][j], mean_bounds[j])
+				sd.append(std_dev)
+			standard_deviations.append(np.array(sd))
+
+		# return np.array(means)
+		return tuple(standard_deviations)
 
 	def create_mask(self,
 			colour: np.ndarray,
@@ -710,7 +798,7 @@ class Image:
 		"""
 		return Image(cv.bitwise_and(self.get(), self.get(), mask=mask), self.colour_space())
 
-	def blur(self, kernel_size: int | tuple[int, int], sigma: float=0) -> Image:
+	def blur(self, kernel_size: int | tuple[int, int], sigma: float=0):
 		"""
 		Performs a Gaussian blur on the image.
 
@@ -733,9 +821,8 @@ class Image:
 		"""
 		if (isinstance(kernel_size, tuple)):
 			if (((kernel_size[0] % 2) == 0) or ((kernel_size[1] % 2) == 0)):
-				raise ValueError(
-					"size parameter contained even dimension - it must be odd."
-				)
+				raise ValueError("size parameter contained even dimension - " +
+		     		"it must be odd.")
 		elif (isinstance(kernel_size, int)):
 			if ((kernel_size % 2) == 0):
 				raise ValueError("size parameter was even - it must be odd.")
@@ -784,10 +871,12 @@ class Image:
 			"tophat": cv.MORPH_TOPHAT
 		}
 		if operation.lower() not in ALLOWED_OPS.keys():
-			raise ValueError(f"Invalid morphology operation '{operation}' provided.")
+			raise ValueError(f"Invalid morphology operation '{operation}' " +
+		    	"provided.")
 		if (isinstance(kernel_size, tuple)):
 			if (((kernel_size[0] % 2) == 0) or ((kernel_size[1] % 2) == 0)):
-				raise ValueError("size parameter contained even dimension - it must be odd.")
+				raise ValueError("size parameter contained even dimension - " +
+		    		"it must be odd.")
 		elif (isinstance(kernel_size, int)):
 			if ((kernel_size % 2) == 0):
 				raise ValueError("size parameter was even - it must be odd.")
@@ -797,7 +886,10 @@ class Image:
 		
 		op_code = ALLOWED_OPS[operation.lower()]
 		kernel = cv.getStructuringElement(cv.MORPH_RECT, kernel_size)
-		return Image(cv.morphologyEx(self.get(), op_code, kernel, iterations=iterations), self.colour_space())  # TODO decide whether to use iterations parameter or for loop
+		
+		# TODO decide whether to use iterations parameter or for loop
+		return Image(cv.morphologyEx(self.get(), op_code, kernel, 
+			iterations=iterations), self.colour_space())
 
 	def threshold(self, threshold: int) -> Image:
 		"""
@@ -877,5 +969,3 @@ class Image:
 		for contour in contours:
 			boxes.append(cv.boundingRect(contour))
 		return np.array(boxes)
-
-
