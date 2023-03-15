@@ -567,7 +567,7 @@ class Image:
 			bounds = (0, len(histogram) - 1)
 
 		hist = histogram[bounds[0]: bounds[1] + 1].flatten()
-		n = np.sum(hist * np.arange(bounds[0], bounds[1] + 1))
+		n = np.sum(hist * (np.arange(hist.shape[0]) + bounds[0]))
 		d = np.sum(hist)
 		return (n / d)
 
@@ -741,9 +741,9 @@ class Image:
 		return tuple(standard_deviations)
 
 	def create_mask(self,
-			colour: np.ndarray,
-			sigma: np.ndarray,
-			deviations: float=2
+			colour: tuple[np.ndarray],
+			sigma: tuple[np.ndarray],
+			deviations: (float | tuple[float])=2
 		) -> np.ndarray:
 		"""
 		Creates a mask of the image, where pixels are included if
@@ -752,13 +752,19 @@ class Image:
 
 		Parameters
 		----------
-		`colour` : `numpy.ndarray`
-			The mean colour to mask on.
+		`colour` : `tuple` of `numpy.ndarray`
+			The mean colours to mask on. The tuple have an `ndarray` for
+			each colour channel in the image, with each `ndarray`
+			representing the mean colours for one channel. An arbitrary
+			number of colours can be provided for each colour channel.
 		`sigma` : `numpy.ndarray`
-			The standard deviation around the mean colour.
-		`deviations` : `float`, optional, default = 2
+			The standard deviations around the mean colours to mask on.
+			Must have identical dimensions to `colour`.
+		`deviations` : `float` or `tuple` of `float`, optional, default
+		= 2
 			The number of standard deviations from the mean to include
-			in the mask.
+			in the mask. If a tuple is provided, it must have a
+			dimension for each colour channel in the image
 		
 		Returns
 		-------
@@ -768,19 +774,66 @@ class Image:
 		Raises
 		------
 		`ValueError`
-			If the size of the mean colour array is different to that of
-			the sigma array.
+			If the length of `colour` or `sigma` don't match the image's
+			colour channels.
+			If the shape of `colour` and `sigma` isn't identical.
+			If `deviations` is a `tuple` and its length doesn't match
+			the image's colour channels.
 		"""
-		if (len(colour) != len(sigma)):
-			return ValueError(
-				"The provided colour and sigma must have equal dimensions."
-			)
+		dims = COLOUR_SPACES[self.colour_space()]["dimensions"]
 		
-		# TODO check values for red issues (360 -> 0 degree wrap issues)
-		lower_bound = colour - (deviations * sigma)
-		upper_bound = colour + (deviations * sigma)
+		if (len(colour) != len(dims)):
+			raise ValueError(f"An incorrect number of dimensions, " +
+				f"'{len(colour)}', was provided for colour - this should be " +
+				f"of dimension '{len(dims)}'.")
+		if (len(sigma) != len(dims)):
+			raise ValueError(f"An incorrect number of dimensions, " +
+		    	f"'{len(sigma)}', was provided for sigma - this should be of" +
+				f" dimension '{len(dims)}'.")
+		if (isinstance(deviations, tuple) and 
+    		(len(deviations) != len(dims))):
+			raise ValueError(f"An incorrect number of dimensions, " +
+		    	f"{len(deviations)}', was provided for deviations - this " +
+				f"should be of dimension '{len(dims)}'.")
+		
+		max_length = 0
+		for i in range(len(colour)):
+			length = colour[i].shape[0]
+			if (length != sigma[i].shape[0]):
+				raise ValueError(f"The number of dimensions provided for " +
+		    		f"colour, '{len(colour)}', didn't match the number of " +
+					f"dimensions provided for sigma, '{len(sigma)}'.")
+			if (length > max_length):
+				max_length = length
 
-		return cv.inRange(self.get(), lower_bound, upper_bound)
+		for i in range(len(colour)):
+			length = colour[i].shape[0]
+			if (length < max_length):
+				colour[i] = np.append(colour[i],
+			  		np.ones(max_length - length) * -1)
+				sigma[i] = np.append(sigma[i],
+			 		np.ones(max_length - length) * -1)
+
+		colour = np.array(colour).T
+		sigma = np.array(sigma).T
+		deviations = np.array(deviations)
+
+		mask = np.zeros(self.get().shape[0:2], "uint8")
+		for i in range(colour.shape[0]):
+			lower_bound, upper_bound = [], []
+			for j in range(colour.shape[1]):
+				if (colour[i][j] == -1):
+					lower_bound.append(0)
+					upper_bound.append(dims[j] - 1)
+				else:
+					lower_bound.append(colour[i][j] - (deviations[j] * sigma[i][j]))
+					upper_bound.append(colour[i][j] + (deviations[j] * sigma[i][j]))
+
+			lower_bound, upper_bound = np.array(lower_bound), np.array(upper_bound)
+			m = cv.inRange(self.get(), lower_bound, upper_bound)
+			mask = cv.bitwise_or(mask, m)
+
+		return mask
 
 	def apply_mask(self, mask: np.ndarray) -> Image:
 		"""
