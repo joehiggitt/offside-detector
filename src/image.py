@@ -1,3 +1,8 @@
+"""
+A module for storing and manipulating OpenCV images.
+Written by Joe Higgitt.
+"""
+
 from __future__ import annotations
 from typing import Any
 import cv2 as cv
@@ -85,8 +90,8 @@ class Image:
 	bounds: tuple, num_colours: int, c: float)` : `tuple`
 		Finds the standard deviation in the dominant colour in the
 		image.
-	`create_mask(colour: numpy.ndarray, sigma: numpy.ndarray,
-	deviations: float)` : `numpy.ndarray`
+	`create_mask(colour: tuple, sigma: tuple, deviations: float or
+	tuple)` : `numpy.ndarray`
 		Creates a mask of the image, where pixels are included if
 		they're within a defined number of standard deviations from the
 		colour.
