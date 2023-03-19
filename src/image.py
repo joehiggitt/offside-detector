@@ -9,6 +9,10 @@ import cv2 as cv
 import numpy as np
 
 
+Bounds_Type = tuple[np.ndarray, np.ndarray]
+Kernel_Size_Type = int | tuple[int, int]
+
+
 COLOUR_SPACES = {
 	"BGR": {
 		"dimensions": np.array([256, 256, 256], "uint16"),
@@ -82,8 +86,8 @@ class Image:
 		Converts the image from one colour space to another
 	`display(**kwargs: dict)`
 		Displays the image in a window.
-	`dominant_colour(k: float, bounds: tuple, num_colours: int, c:
-	float)` : `numpy.ndarray`
+	`dominant_colour(k: float, c: float, bounds: tuple, num_colours: 
+	int)` : `numpy.ndarray`
 		Finds the dominant colour of the image using a tight bound about
 		the peak colour.
 	`dominant_colour_deviation(dominant_colours: np.ndarray, k: float,
@@ -197,9 +201,8 @@ class Image:
 		"""
 		return self.__image
 
-	def channels(self,
-			channel_num: int=None
-		) -> tuple[np.ndarray] | np.ndarray:
+	def channels(self, channel_num: int = None
+		) -> (tuple[np.ndarray] | np.ndarray):
 		"""
 		Returns the separate colour channels in the image array.
 
@@ -233,9 +236,7 @@ class Image:
 		
 		return channels
 
-	def histogram(self,
-	    	channel_num: int=None,
-			normalise: bool=True
+	def histogram(self,	channel_num: int = None, normalise: bool = True
 		) -> tuple[np.ndarray] | np.ndarray:
 		"""
 		Returns the histograms of the separate colour channels in the
@@ -335,10 +336,8 @@ class Image:
 		return True
 
 	@classmethod
-	def __handle_kwargs(cls,
-			inputted_kwargs: dict[str, Any],
-			allowed_kwargs: dict[str, list[type]]
-		):
+	def __handle_kwargs(cls, inputted_kwargs: dict[str, Any], allowed_kwargs: 
+		dict[str, list[type]]):
 		"""
 		Function that handles variable length keyword parameter lists.
 		Ensures that the kwargs passed into the function match the
@@ -369,8 +368,7 @@ class Image:
 						f" a value of type {allowed_kwargs[key]}, but " +
 						f"received {type(val)}.")
 
-	def __create_display(self,
-			**kwargs: (str | tuple[int, int])
+	def __create_display(self, **kwargs: (str | tuple[int, int])
 		) -> tuple[function, str]:
 		"""
 		Creates a `cv2.imshow` function call for use when displaying a single window or multiple windows.
@@ -470,12 +468,8 @@ class Image:
 			images[i].convert(colour_spaces[i])
 
 	@classmethod
-	def __find_peak_bounds(cls,
-			histogram: np.ndarray,
-			k: float,
-			bounds: tuple[int, int]=None,
-			num_means: int=1,
-			c: float=0
+	def __find_peak_bounds(cls, histogram: np.ndarray, k: float, bounds: 
+		tuple[int, int] = None, num_means: int = 1, c: float = 0
 		) -> np.ndarray:
 		"""
 		Finds the lower and upper bounds of an image channel around the
@@ -544,9 +538,7 @@ class Image:
 		return np.array(all_mean_bounds)
 
 	@classmethod
-	def __get_mean(cls,
-			histogram: np.ndarray,
-			bounds: tuple[int, int]=None
+	def __get_mean(cls, histogram: np.ndarray, bounds: tuple[int, int] = None
 		) -> float:
 		"""
 		Finds the mean colour in an image channel using a tight bound
@@ -576,12 +568,8 @@ class Image:
 		d = np.sum(hist)
 		return (n / d)
 
-	def dominant_colour(self, 
-		    k: float,
-			bounds: tuple[np.ndarray, np.ndarray]=None,
-			num_colours: int=1,
-			c: float=1
-		) -> tuple[np.ndarray]:
+	def dominant_colour(self, k: float,	c: float = 1, bounds: Bounds_Type =
+		None, num_colours: int = 1) -> tuple[np.ndarray]:
 		"""
 		Finds the dominant colour of the image using a tight bound about
 		the peak colour. Can find one or more dominant colours in an
@@ -595,6 +583,10 @@ class Image:
 		`k` : `float`, `0 < k < 1`
 			Parameter describing how different two adjacent channels
 			must be to be considered a bound. (Recommended value of 0.2)
+		`c` : `float`, `0 < c < 1`, optional
+			Parameter describing how different a distinct peak should be
+			from the maximum value in the histogram to be considered
+			significant. (Recommended value of 0.6)
 		`bounds` : `tuple` of two `numpy.ndarray`, optional
 			The lower and upper bound of the colour calculation. If not
 			provided, uses the entire histogram. Each `ndarray` must
@@ -603,10 +595,6 @@ class Image:
 		`num_colours` : `int`, `num_colours > 0`, optional
 			The maximum number of dominant colours to find. If not
 			provided, finds	a single colour.
-		`c` : `float`, `0 < c < 1`, optional
-			Parameter describing how different a distinct peak should be
-			from the maximum value in the histogram to be considered
-			significant.
 
 		Returns
 		-------
@@ -618,8 +606,8 @@ class Image:
 		Raises
 		------
 		`ValueError`
-			If a lower and upper bound isn't provided for each channel
-			in the image.
+			If `bounds` is provided and a lower and upper bound isn't
+			provided for each channel in the image.
 		"""
 		# Gets image histograms
 		hists = self.histogram()
@@ -630,7 +618,7 @@ class Image:
 			bounds = (np.zeros_like(dims), dims - 1)
 		elif ((len(hists) != len(bounds[0])) or 
 			(len(hists) != len(bounds[1]))):
-			return ValueError("A bound value must be provided for each " +
+			raise ValueError("A bound value must be provided for each " +
 		    	"channel in the image.")
 
 		# Calculates means for each image channel
@@ -647,11 +635,8 @@ class Image:
 		return tuple(means)
 
 	@classmethod
-	def __get_standard_deviation(cls,
-			channel: np.ndarray,
-			mean: float,
-			bounds: tuple[int, int]=None
-		) -> float:
+	def __get_standard_deviation(cls, channel: np.ndarray, mean: float, bounds:
+		tuple[int, int] = None) -> float:
 		"""
 		Finds the standard deviation in the colour in an image channel.
 
@@ -679,13 +664,9 @@ class Image:
 		total = np.sum(np.square((-1 * flat_channel) + mean))
 		return np.sqrt(total / flat_channel.size)
 
-	def dominant_colour_deviation(self,
-		dominant_colours: np.ndarray,
-		k: float,
-		bounds: tuple[np.ndarray, np.ndarray]=None,
-		num_colours: int=1,
-		c: float=1
-	) -> np.ndarray:
+	def dominant_colour_deviation(self, dominant_colours: np.ndarray, k: float,
+		bounds: Bounds_Type=None, num_colours: int=1, c: float=1
+		) -> np.ndarray:
 		"""
 		Finds the standard deviation in the dominant colour in the
 		image.
@@ -702,7 +683,7 @@ class Image:
 			The maximum number of means to find standard deviations for.
 			If not provided, finds them for a single colour.
 		`c` : `float`, `0 < c < 1`, optional
-			Parameter describing how different a distinct peak should be
+			Parameter describing how different a distinct peak should bez
 			from the maximum value in the histogram to be considered
 			significant.
 
@@ -714,7 +695,10 @@ class Image:
 		Raises
 		------
 		`ValueError`
-			If a mean isn't provided for each channel in the image.
+			If `dominant_colours` doesn't provide a mean for each 
+			channel in the image.
+			If `bounds` is provided and a lower and upper bound isn't
+			provided for each channel in the image.
 		"""
 		channels = self.channels()
 		hists = self.histogram()
@@ -745,11 +729,8 @@ class Image:
 		# return np.array(means)
 		return tuple(standard_deviations)
 
-	def create_mask(self,
-			colour: tuple[np.ndarray],
-			sigma: tuple[np.ndarray],
-			deviations: (float | tuple[float])=2
-		) -> np.ndarray:
+	def create_mask(self, colour: tuple[np.ndarray], sigma: tuple[np.ndarray],
+		deviations: (float | tuple[float]) = 2) -> np.ndarray:
 		"""
 		Creates a mask of the image, where pixels are included if
 		they're within a defined number of standard deviations from the
@@ -856,7 +837,8 @@ class Image:
 		"""
 		return Image(cv.bitwise_and(self.get(), self.get(), mask=mask), self.colour_space())
 
-	def blur(self, kernel_size: int | tuple[int, int], sigma: float=0):
+	def blur(self, kernel_size: Kernel_Size_Type, sigma: float = 0
+		) -> Image:
 		"""
 		Performs a Gaussian blur on the image.
 
@@ -892,11 +874,8 @@ class Image:
 			borderType=cv.BORDER_DEFAULT)
 		return Image(blur_image, self.colour_space())
 
-	def morphology(self,
-			operation: str,
-			kernel_size: int | tuple[int, int],
-			iterations: int=1
-		) -> Image:
+	def morphology(self, operation: str, kernel_size: Kernel_Size_Type,
+		iterations:int = 1) -> Image:
 		"""
 		Performs a morphological operation on the image.
 
