@@ -1054,3 +1054,40 @@ class Image:
 		for contour in contours:
 			boxes.append(cv.boundingRect(contour))
 		return np.array(boxes)
+
+	@classmethod
+	def hsv_distance(cls, colour1: ut.Colour_Type, colour2: ut.Colour_Type
+		) -> float:
+		"""
+		Finds the cylindrical distance between two colours in the HSV
+		space.
+
+		Algorithm proposed by Ekin et al (2003) "Automatic Soccer Video 
+		Analysis and Summarization" (the implementation references
+		Plataniotis and Venetsanopoulos (2000) "Color Image Processing
+		and Applications").
+
+		Parameters
+		----------
+		`colour_1`, `colour_2` : `numpy.ndarray` of shape `(3,)`
+			HSV colours to find the cylindrical distance between.
+		
+		Returns
+		-------
+		`float`
+			The cylindrical distance.
+		"""
+		H, S, I = 0, 1, 2
+		achromatic_threshold = COLOUR_SPACES["HSV"]["achromatic threshold"]
+		c1, c2 = colour1.astype('float64'), colour2.astype('float64')
+
+		intensity_distance = np.square(np.abs(c1[I] - c2[I]))
+		chroma_distance = 0
+		if ((c1[S] > achromatic_threshold) or (c2[S] > achromatic_threshold)):
+			hue_distance = np.abs(c2[H] - c1[H]) * 2
+			if (hue_distance > 180):
+				hue_distance = 360 - hue_distance
+			chroma_distance = np.square(c1[S]) + np.square(c2[S]) - (2 * c1[S] 
+				* c2[S] * np.cos(np.deg2rad(hue_distance)))
+
+		return np.sqrt(intensity_distance + np.abs(chroma_distance))
