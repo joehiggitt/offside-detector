@@ -5,50 +5,51 @@ Written by Joe Higgitt.
 
 from __future__ import annotations
 from typing import Any
-from copy import deepcopy
+
 import numpy as np
 import cv2 as cv
-
 import image as im
+import utils as ut
+from sklearn.cluster import DBSCAN
+from copy import deepcopy
 
 
-Params_Dict = dict[str, dict[str, Any]]
-DEFAULT_PARAMS: Params_Dict = {
+DEFAULT_PARAMS: ut.Params_Type = {
 	"dominant colour": {
 		"k": 0.2,
 		"c": 0.6,
+		"n": 3,
 		"bounds": (
 			np.array([20, 0, 0], "uint8"),
 			np.array([80, 255, 255], "uint8"),
 		),
-		"num_colours": 3
 	},
 	"lines blur": {
 		"sigma": 15,
-		"kernel_size": 15
+		"kernel_size": 15,
 	},
 	"player blur": {
-		"kernel_size": 3
+		"kernel_size": 3,
 	},
 	"grass mask": {
-		"deviations": (4, 6, 6)
+		"deviations": (4, 6, 6),
 	},
 	"grass mask open": {
 		"kernel_size": 3,
-		"iterations": 8
+		"iterations": 8,
 	},
 	"grass mask close": {
 		"kernel_size": 3,
-		"iterations": 2
+		"iterations": 2,
 	},
 	"pitch mask close": {
 		"kernel_size": 11,
-		"iterations": 5
+		"iterations": 5,
 	},
 	"object mask erode": {
 		"kernel_size": 3,
-		"iterations": 1
-	}
+		"iterations": 1,
+	},
 }
 
 
@@ -67,9 +68,11 @@ class OffsideDetector:
 	`param(operation: str, param: str)` : `dict` or `Any`
 		Returns a parameter or parameter list required by a certain
 		function.
-
+	`get_offsides(image: image.Image)` : ``
+		Finds the offsides in a football image.
 	"""
-	def __init__(self, params: Params_Dict=DEFAULT_PARAMS) -> OffsideDetector:
+
+	def __init__(self, params: ut.Params_Type = DEFAULT_PARAMS):
 		"""
 		Creates an offside detector object for an image of a football
 		match.
@@ -97,7 +100,7 @@ class OffsideDetector:
 		self.__params: dict     = params
 
 	@classmethod
-	def __verify_params(cls, params: Params_Dict):
+	def __verify_params(cls, params: ut.Params_Type):
 		"""
 		Validates whether a provided parameter dictionary is valid or
 		not. To be valid, the dictionary must have an identical 
@@ -122,7 +125,7 @@ class OffsideDetector:
 		for key in DEFAULT_PARAMS.keys():
 			if (DEFAULT_PARAMS[key].keys() != params[key].keys()):
 				raise ValueError(f"Parameters provided for operation '{key}'" +
-		    		+ "are invalid.")
+					+ "are invalid.")
 
 	def param(self, operation: str, param: str=None) -> dict[str, Any] | Any:
 		"""
@@ -139,13 +142,14 @@ class OffsideDetector:
 		Returns
 		-------
 		`dict` of `str: Any`
-			If `param` not provided, the keyword argument dictionary to pass into the function.
+			If `param` not provided, the keyword argument dictionary to
+			pass into the function.
 		`Any`
 			If `param` provided, the parameter value.
 
 		Raises
 		------
-		`KeyError`
+		`ValueError`
 			If `operation` or `param` is not recognised.
 		"""
 		if (operation.lower() not in self.__params.keys()):
@@ -156,12 +160,12 @@ class OffsideDetector:
 		
 		if (param.lower() not in self.__params[operation.lower()].keys()):
 			raise ValueError(f"Parameter '{param}' not recognised for " +
-		    	f"operation '{operation}'.")
+				f"operation '{operation}'.")
 		
 		return self.__params[operation.lower()][param.lower()]
 	
-	def get_grass_mask(self, blur_image: im.Image, grass_colour: 
-		tuple[np.ndarray] = None, grass_sigma: tuple[np.ndarray] = None
+	def __get_grass_mask(self, blur_image: im.Image, grass_colour: 
+		ut.Mutiple_Colour_Type = None, grass_sigma: ut.Mutiple_Colour_Type = None
 		) -> im.Image:
 		"""
 		Creates a mask of the grass in a football image.
@@ -193,16 +197,15 @@ class OffsideDetector:
 		# Creates a mask of the pitch on the grass colour
 		grass_mask = blur_image.create_mask(grass_colour, grass_sigma, 
 			**self.param("grass mask"))
-		grass_image = im.Image(grass_mask, "BINARY")
 	
 		# Open to remove crowd noise, Close to fill in some of the pitch noise
-		grass_image = grass_image.morphology("open", 
+		grass_mask = grass_mask.morphology("open", 
 			**self.param("grass mask open"))
-		grass_image = grass_image.morphology("close", 
+		grass_mask = grass_mask.morphology("close", 
 			**self.param("grass mask close"))
-		return grass_image
+		return grass_mask
 
-	def get_pitch_mask(self, grass_mask: im.Image) -> im.Image:
+	def __get_pitch_mask(self, grass_mask: im.Image) -> im.Image:
 		"""
 		Creates a mask of the playing area in a football image using
 		morphological operations.
@@ -223,7 +226,7 @@ class OffsideDetector:
 			"pitch mask close"))
 		return pitch_image
 
-	def get_object_mask(self, grass_mask: im.Image, pitch_mask: im.Image
+	def __get_object_mask(self, grass_mask: im.Image, pitch_mask: im.Image
 		) -> im.Image:
 		"""
 		Creates a mask of the non-grass features in a football image by
@@ -277,7 +280,7 @@ class OffsideDetector:
 			**self.param("dominant colour"))
 
 		# Get the grass mask of the image using the colours
-		grass_mask = self.get_grass_mask(player_blur_image, grass_colour, 
+		grass_mask = self.__get_grass_mask(player_blur_image, grass_colour, 
 			grass_sigma)
-		pitch_mask = self.get_pitch_mask(grass_mask)
-		object_mask = self.get_object_mask(grass_mask, pitch_mask)
+		pitch_mask = self.__get_pitch_mask(grass_mask)
+		object_mask = self.__get_object_mask(grass_mask, pitch_mask)
