@@ -254,6 +254,88 @@ class OffsideDetector:
 		object_image = object_image.morphology("erode",
 			**self.param("object mask erode"))
 		return object_image
+	
+	
+	def __get_line_mask(self, grey_image: im.Image, pitch_mask: im.Image
+		) -> im.Image:
+		"""
+		Creates a mask of the pitch lines in a football image using the
+		morphological tophat operator.
+
+		Parameters
+		----------
+		`grey_image` : `image.Image`
+			The greyscale blurred image of the football pitch
+		`pitch_mask` : `image.Image`
+			The mask of the playing area in the football image. See 
+			`__get_pitch_mask` for creating this.
+
+		Returns
+		-------
+		`image.Image`
+			The mask containing the pitch line pixels in the image.
+		"""
+		# Tophat operator extracts the light features in an image
+		tophat_image = grey_image.morphology("tophat", **self.param(
+			"lines top hat"))
+		tophat_image = tophat_image.threshold(**self.param("lines threshold"))
+		line_mask    = np.bitwise_and(tophat_image.get(), pitch_mask.get())
+		line_image   = im.Image(line_mask, "BINARY")
+
+		# Erosion to remove noise and thin found lines
+		line_image   = line_image.morphology("erode", 
+			**self.param("lines erode"))
+		return line_image
+	
+	def __get_lines(self, line_mask: im.Image) -> (np.ndarray | None):
+		"""
+		Finds lines in the image, using DBSCAN to refine the results.
+
+		Parameters
+		----------
+		`line_mask` : `image.Image`
+			The mask of the pitch lines in the football image. See 
+			`__get_line_mask` for creating this.
+		
+		Returns
+		-------
+		`numpy.ndarray` of shape `(k, 2)`
+			If lines were found, an an array of the lines found, in the
+			form '(rho, theta)', where 'rho' is the distance from the
+			origin and 'theta' is the line normal from the origin. theta
+			must be in the interval [0, π) radians (or [0, 180) 
+			degrees).
+		`None`
+			If no lines were found.
+
+		"""
+		lines = line_mask.hough(**self.param("lines hough"))
+		if (lines is None):
+			return None
+
+		# Removes lines which lie outside a bound
+		rho_bound, theta_bound = self.param("lines bounds", "rho"), self.param(
+			"lines bounds", "theta")
+		bounded_lines = lines[
+			(rho_bound[0] <= lines[:, 0]) & (lines[:, 0] <= rho_bound[1]) & 
+			(theta_bound[0] <= lines[:, 1]) & (lines[:, 1] <= theta_bound[1])
+		]
+
+		# Clusters lines into distinct groups
+		X = np.dstack((bounded_lines[:, 0] * self.param("lines normalise", 
+			"scale"), bounded_lines[:, 1]))[0]
+		model = DBSCAN(**self.param("lines dbscan")).fit(X)
+		labels = model.labels_
+
+		means = []
+		for i in range(np.amax(labels) + 1):
+			means.append(np.mean(bounded_lines[labels == i], axis=0))
+		mean_lines = np.array(means)
+		if (mean_lines.shape[0] == 0):
+			return None
+
+		return mean_lines[np.argsort(mean_lines[:, 1]) < self.param(
+			"lines number", "number")]
 
 	def get_offsides(self, image: im.Image):
 		"""
@@ -270,17 +352,37 @@ class OffsideDetector:
 			x
 		"""
 		# Blur images for line and player detection
-		line_blur_image = image.blur(**self.param("lines blur"))
-		player_blur_image = image.blur(**self.param("player blur"))
+		line_image = image.blur(**self.param("lines blur"))
+		player_image = image.blur(**self.param("player blur"))
 
 		# Get the colour characteristics of the current image
-		grass_colour = line_blur_image.dominant_colour(**self.param(
+		grass_colour = line_image.dominant_colour(**self.param(
 			"dominant colour"))
-		grass_sigma = line_blur_image.dominant_colour_deviation(grass_colour, 
+		grass_sigma = line_image.dominant_colour_deviation(grass_colour, 
 			**self.param("dominant colour"))
 
 		# Get the grass mask of the image using the colours
-		grass_mask = self.__get_grass_mask(player_blur_image, grass_colour, 
+		grass_mask = self.__get_grass_mask(player_image, grass_colour, 
 			grass_sigma)
 		pitch_mask = self.__get_pitch_mask(grass_mask)
 		object_mask = self.__get_object_mask(grass_mask, pitch_mask)
+
+		# Create the main line and player masks
+		grey_line_image = line_image.convert("BGR").convert("GREY")
+		line_mask = self.__get_line_mask(grey_line_image, pitch_mask)
+
+		# Find pitch lines in the line mask
+		pitch_lines = self.__get_lines(line_mask)
+
+		# If the results found are poor, attempts to reverse the image
+		reverse = False
+		if (pitch_lines is None):
+			pitch_lines = self.__get_lines(line_mask.flip("h"))
+			if (pitch_lines is None):
+				return None
+			reverse = True
+
+		if reverse:
+			player_mask = player_mask.flip("h")
+			player_image = player_image.flip("h")
+	
