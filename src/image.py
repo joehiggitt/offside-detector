@@ -9,8 +9,7 @@ from typing import Any
 import numpy as np
 import cv2 as cv
 import utils as ut
-
-import matplotlib.pyplot as plt
+from copy import deepcopy
 
 
 COLOUR_SPACES = {
@@ -68,6 +67,9 @@ class Image:
 		Displays multiple images in multiple windows.
 	`Image.contour_boxes(contours: tuple)` : `numpy.ndarray`
 		Finds the bounding boxes enclosing contours in an image.
+	`Image.hsv_distance(colour1: tuple, colour2: tuple)` : `float`
+		Finds the cylindrical distance between two colours in the HSV
+		space.
 
 	Methods	
 	-------
@@ -84,7 +86,9 @@ class Image:
 	`colour_space()` : `str`
 		Returns the colour space of the image.
 	`convert(colour_space: str)` : `Image` or `None`
-		Converts the image from one colour space to another
+		Converts the image from one colour space to another.
+	`flip(mode: str)` : `Image`
+		Flips the image in a direction.
 	`display(**kwargs: dict)`
 		Displays the image in a window.
 	`dominant_colour(k: float, c: float, n: int, bounds: tuple)` :
@@ -152,7 +156,7 @@ class Image:
 		dims = COLOUR_SPACES[colour_space.upper()]["dimensions"]
 		if (channels != dims.shape[0]):
 			raise ValueError(f"The colour space provided ({colour_space}) " +
-		    	"doesn't match the number of colour channels found in the " +
+				"doesn't match the number of colour channels found in the " +
 				f"image ({channels}).")
 		
 		self.__image:  np.ndarray = image
@@ -365,6 +369,34 @@ class Image:
 		except KeyError:
 			return None
 		return Image(cv.cvtColor(self.__image, code), colour_space)
+
+	def flip(self, mode: str) -> Image:
+		"""
+		Flips the image in a direction.
+
+		Parameters
+		----------
+		`mode` : `{"h", "v", "b"}`
+			The direction to flip in. Can be either horizontal 'h',
+			vertical 'v' or both 'b'.
+
+		Returns
+		-------
+		`Image`
+			The flipped image.
+
+		Raises
+		------
+		`ValueError`
+			If the value of `mode` is not recognised.
+		"""
+		ALLOWED_MODES = {"h": 1, "v": 0, "b": -1}
+		if (mode.lower() not in ALLOWED_MODES):
+			raise ValueError(f"Unrecognised mode '{mode}' inputted. " +
+				"Supported modes are horizontal 'h', vertical 'v' or both " + 
+				"'b'.")
+		mode = ALLOWED_MODES[mode.lower()]
+		return Image(cv.flip(self.__image, mode), self.__colour)
 
 	def __create_display(self, **kwargs: (str | tuple[int, int])) -> tuple[
 		function, str]:
@@ -934,7 +966,7 @@ class Image:
 		Raises
 		------
 		`ValueError`
-			If the value of `operation` is not recognised.
+			If the value of `operation` is not recognised.\n
 			If the value of `size` is not odd.
 		"""
 		ALLOWED_OPS = {
@@ -1003,11 +1035,16 @@ class Image:
 			the interval [0, π) radians.
 		`None`
 			If no lines are found.
+
+		Raises
+		------
+		`ValueError`
+			If the value of `mode` is not recognised.
 		"""
 		ALLOWED_MODES = ["RAD", "DEG"]
 		if (mode.upper() not in ALLOWED_MODES):
 			raise ValueError(f"Unrecognised mode '{mode}' inputted. " +
-		    	"Supported modes are radians ('RAD') and degrees ('DEG').")
+				"Supported modes are radians ('RAD') and degrees ('DEG').")
 		
 		lines = cv.HoughLines(self.__image, 1, np.pi / 180, threshold)
 		if ((lines is None) or (lines.shape[0] == 0)):
