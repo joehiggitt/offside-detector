@@ -10,47 +10,9 @@ import numpy as np
 import cv2 as cv
 import image as im
 import utils as ut
+from parameters import DEFAULT_PARAMS
 from sklearn.cluster import DBSCAN
 from copy import deepcopy
-
-
-DEFAULT_PARAMS: ut.Params_Type = {
-	"dominant colour": {
-		"k": 0.2,
-		"c": 0.6,
-		"n": 3,
-		"bounds": (
-			np.array([20, 0, 0], "uint8"),
-			np.array([80, 255, 255], "uint8"),
-		),
-	},
-	"lines blur": {
-		"sigma": 15,
-		"kernel_size": 15,
-	},
-	"player blur": {
-		"kernel_size": 3,
-	},
-	"grass mask": {
-		"deviations": (4, 6, 6),
-	},
-	"grass mask open": {
-		"kernel_size": 3,
-		"iterations": 8,
-	},
-	"grass mask close": {
-		"kernel_size": 3,
-		"iterations": 2,
-	},
-	"pitch mask close": {
-		"kernel_size": 11,
-		"iterations": 5,
-	},
-	"object mask erode": {
-		"kernel_size": 3,
-		"iterations": 1,
-	},
-}
 
 
 class OffsideDetector:
@@ -164,6 +126,210 @@ class OffsideDetector:
 		
 		return self.__params[operation.lower()][param.lower()]
 	
+	
+	@classmethod
+	def __get_intersecting_point(cls, line1: ut.Line_Type, line2: ut.Line_Type,
+		mode: str = "RAD") -> (ut.Point_Type | None):
+		"""
+		Finds the intersection between two lines defined with polar
+		coordinates.
+
+		Parameters
+		----------
+		`line1`, `line2` : `tuple` of two `float`
+			The lines to find the intersection between. Lines must be
+			in the form '(rho, theta)', where 'rho' is the distance from
+			the origin and 'theta' is the line normal from the origin.
+			theta must be in the interval [0, π) radians (or
+			[0, 180) degrees).
+		`mode`: `["RAD", "DEG"]`, optional, default=`"RAD"`
+			The units used by the inputted theta values (can be either
+			radians or degrees). By default, radians are used.
+			
+		Returns
+		-------
+		`tuple` of `float`
+			If the lines intersect, the coordinates of the point where
+			they intersect (in the form `(x, y)`).
+		`None`
+			If the lines don't intersect (because they're parallel).
+		"""
+		ALLOWED_MODES = ["RAD", "DEG"]
+		if (mode.upper() not in ALLOWED_MODES):
+			raise ValueError(f"Unrecognised mode '{mode}' inputted. " +
+				"Supported modes are radians ('RAD') and degrees ('DEG').")
+		
+		rho1, theta1 = line1
+		rho2, theta2 = line2
+
+		# Converts to radians if degrees provided (since numpy trig functions
+		# use radians)
+		if (mode.upper() == "DEG"):
+			theta1, theta2 = np.deg2rad(theta1), np.deg2rad(theta2)
+
+		# If theta values are equal, then the lines are parallel
+		if (theta1 == theta2):
+			return None
+
+		x, y = None, None
+
+		# Checks edge cases where theta is 0 or 90 deg (meaning intersection
+		# equation is undefined)
+		is_theta1 = None
+		if (theta1 == 0):
+			x = rho1
+			is_theta1 = False
+		elif (theta1 == (np.pi / 2)):
+			y = rho1
+			is_theta1 = False
+		if (theta2 == 0):
+			x = rho2
+			is_theta1 = True
+		elif (theta2 == (np.pi / 2)):
+			y = rho2
+			is_theta1 = True
+
+		# Checks rare edge case where both x and y have be found without a
+		# calculation needed (where one is 0 deg and the other is 90 deg)
+		if ((x is not None) and (y is not None)):
+			return x, y
+
+		# Equations for calculating x or y from the other
+		get_x = lambda y, tan_t, cos_t: (rho1 / cos_t) - (y * tan_t)
+		get_y = lambda x, tan_t, sin_t: (rho1 / sin_t) - (x / tan_t)
+
+		# Checks if either x or y have been set
+		if (x is not None):
+			if is_theta1:
+				theta = theta1
+			else:
+				theta = theta2
+			return x, get_y(x, np.tan(theta), np.sin(theta))
+		if (y is not None):
+			if is_theta1:
+				theta = theta1
+			else:
+				theta = theta2
+			return get_x(y, np.tan(theta), np.cos(theta)), y
+
+		# If no edge cases have occured, calculates the intersection
+		sin_theta1, sin_theta2 = np.sin(theta1), np.sin(theta2)
+		tan_theta1, tan_theta2 = np.tan(theta1), np.tan(theta2)
+
+		a = rho1 * sin_theta2 - rho2 * sin_theta1
+		b = sin_theta1 * sin_theta2
+		c = tan_theta1 * tan_theta2
+		d = tan_theta2 - tan_theta1
+
+		u = a / b
+		v = c / d
+			
+		x = u * v
+		y = get_y(x, tan_theta1, sin_theta1)
+		# y = get_y(x, tan_theta2, sin_theta2)
+		return x, y
+		
+	@classmethod
+	def __get_intersecting_angle(cls, point1: ut.Point_Type, point2: 
+		ut.Point_Type, mode: str = "RAD") -> (float | None):
+		"""
+		Finds the orientation of one point defined with polar
+		coordinates with another.
+
+		Parameters
+		----------
+		`point1`, `point2` : `tuple` of two `float`
+			The points to find the intersection between. Points must be
+			in the form '(x, y)'.
+		`mode`: `{"RAD", "DEG"}`, optional, default=`"RAD"`
+			The units used by the inputted theta values (can be either
+			radians or degrees). By default, radians are used.
+			
+		Returns
+		-------
+		`float`
+			The angle between the points.
+		`None`
+			If the two points are the same
+		"""
+		ALLOWED_MODES = ["RAD", "DEG"]
+		if (mode.upper() not in ALLOWED_MODES):
+			raise ValueError(f"Unrecognised mode '{mode}' inputted. " +
+				"Supported modes are radians ('RAD') and degrees ('DEG').")
+
+		if (np.allclose(point1, point2)):
+			return None
+
+		x1, y1 = point1
+		x2, y2 = point2
+
+		# Get theta angle of intersecting line
+		if (x1 == x2):
+			theta = 0
+		elif (y1 == y2):
+			theta = np.pi / 2
+		else:
+			tan_theta = (x1 - x2) / (y2 - y1)
+			theta = np.arctan(tan_theta)  # TODO consider using arctan2
+
+			# Ensures theta lies in [0, pi) interval
+			if (theta < 0):
+				theta += np.pi
+
+		# Converts to degrees if mode selected
+		if (mode.upper() == "DEG"):
+			return np.rad2deg(theta)
+		return theta
+
+	@classmethod
+	def __get_intersecting_line(cls, point1: ut.Point_Type, point2: 
+		ut.Point_Type, mode: str = "RAD") -> (ut.Line_Type | None):
+		"""
+		Finds the line that intersects two points defined with polar
+		coordinates.
+
+		Parameters
+		----------
+		`point1`, `point2` : `tuple` of two `float`
+			The points to find the intersection between. Points must be
+			in the form '(x, y)'.
+		`mode`: `["RAD", "DEG"]`, optional, default=`"RAD"`
+			The units used by the inputted theta values (can be either
+			radians or degrees). By default, radians are used.
+			
+		Returns
+		-------
+		`tuple` of `float`
+			The line that intersects the points in the form '(rho,
+			theta)', where 'rho' is the distance from the origin and
+			'theta' is the line normal from the origin. theta must be in
+			the interval [0, π) radians (or [0, 180) degrees).
+		`None`
+			If the two points are the same
+		"""
+		ALLOWED_MODES = ["RAD", "DEG"]
+		if (mode.upper() not in ALLOWED_MODES):
+			raise ValueError(f"Unrecognised mode '{mode}' inputted. " +
+				"Supported modes are radians ('RAD') and degrees ('DEG').")
+
+		theta = OffsideDetector.__get_intersecting_angle(point1, point2, "RAD")
+		if (theta is None):
+			return None
+
+		x1, y1 = point1
+		# x2, y2 = point2
+
+		# Get rho distance from origin of intersecting line
+		get_rho = lambda x, y, t: np.sin(t) * y + np.cos(t) * x
+		rho = get_rho(x1, y1, theta)
+		# rho = get_rho(x2, y2, theta)
+
+		# Converts to degrees if mode selected
+		if (mode.upper() == "DEG"):
+			theta = np.rad2deg(theta)
+		return rho, theta
+
+
 	def __get_grass_mask(self, blur_image: im.Image, grass_colour: 
 		ut.Mutiple_Colour_Type = None, grass_sigma: ut.Mutiple_Colour_Type = None
 		) -> im.Image:
@@ -286,6 +452,35 @@ class OffsideDetector:
 		line_image   = line_image.morphology("erode", 
 			**self.param("lines erode"))
 		return line_image
+
+	def __get_player_mask(self, object_mask: im.Image, line_mask: im.Image
+		) -> im.Image:
+		"""
+		Creates a mask of the players in a football image by subtracting
+		a pitch line mask from a mask of the objects.
+
+		Parameters
+		----------
+		`object_mask` : `image.Image`
+			The mask of the objects in the football image. See 
+			`__get_object_mask` for creating this.
+		`line_mask` : `image.Image`
+			The mask of the pitch lines in the football image. See 
+			`__get_line_mask` for creating this.
+
+		Returns
+		-------
+		`image.Image`
+			The mask containing the player pixels in the image.
+		"""
+		# Subtracts the line mask from object mask to leave mostly players
+		player_mask = object_mask.get() - line_mask.get()
+		player_image = im.Image(player_mask, "BINARY")
+
+		# Open to remove noise
+		player_image = player_image.morphology("open", 
+			**self.param("player mask open"))
+		return player_image
 	
 	def __get_lines(self, line_mask: im.Image) -> (np.ndarray | None):
 		"""
@@ -336,6 +531,254 @@ class OffsideDetector:
 
 		return mean_lines[np.argsort(mean_lines[:, 1]) < self.param(
 			"lines number", "number")]
+	
+	
+	def __get_offside_point(self, lines: list[ut.Line_Type]) -> ut.Point_Type:
+		"""
+		Finds the vanishing point used to calculate offsides around. If
+		two lines are provided, the vanishing point is where they
+		intersect. If more than two lines are provided, the point is the
+		average of all line intersections. It is not recommended to
+		provide more than three lines. 
+		
+		Parameters
+		----------
+		`lines`: `list` of `tuple`, of two `float`
+			A list of lines to be used to find the vanishing point.
+			Lines must be in polar form, '(rho, theta)', where 'rho' is the
+			distance from the origin and 'theta' is the line normal from
+			the origin. theta must be in the interval [0, π) radians.
+
+		Returns
+		-------
+		`tuple` of two `float`
+			The vanishing point.
+		"""
+		points = []
+		for i in range(len(lines)):
+			for j in range(i + 1, len(lines)):
+				point = OffsideDetector.__get_intersecting_point(lines[i], 
+					lines[j])
+				if (point is not None):
+					points.append(point)
+
+		if (len(points) > 1):
+			return tuple(np.average(np.array(points), axis=0))
+		return points[0]
+
+	def __get_offside_lines(self, offside_point: ut.Point_Type, player_points: 
+		np.ndarray) -> np.ndarray:
+		"""
+		Finds the angle between the vanishing (offside) point and each
+		player point.
+		
+		Parameters
+		----------
+		`offside_point`: `tuple` of two `float`
+			The vanishing point to compare each player angle to. Points
+			must be in the form '(x, y)'.
+		`player_points`: `numpy.ndarray` of shape `(k, 2)`
+			A list of `k` player points. Points must be in the form 
+			'(x, y)'.
+
+		Returns
+		-------
+		`numpy.ndarray` of shape `(k, 2)`
+			A list of the `k` offside lines for each player. Lines in 
+			polar form, '(rho, theta)', where 'rho' is the distance from 
+			the origin and 'theta' is the line normal from the origin. 
+			theta must be in the interval [0, π) radians.
+		"""
+		lines = []
+		for point in player_points:
+			line = OffsideDetector.__get_intersecting_line(offside_point, 
+				tuple(point))
+			if (line is not None):
+				lines.append(line)
+		return np.array(lines)
+
+	def __get_candidate_players(self, player_mask: im.Image) -> np.ndarray:
+		"""
+		Finds candidate blobs where players may be in the image.
+		Identifies the blobs then removes blobs which don't lie within
+		the height and width bounds.
+
+		Parameters
+		----------
+		`player_mask` : `image.Image`
+			The mask of the candidate player blobs in the football
+			image. See `__get_player_mask` for creating this.
+
+		Returns
+		-------
+		`numpy.ndarray` of shape `(k, 4)`
+			The list of player bounding boxes. Each box is in the form
+			'(x, y, w, h)' where x and y are the location of the upper
+			left corner of the box in the image and w and h are the
+			width and height of the box respectively.
+		"""
+		# Find the bounding boxes for the player blobs
+		contours = player_mask.contours()
+		boxes = im.Image.contour_boxes(contours)
+
+		w_bound = self.param("player size bounds", "width")
+		h_bound = self.param("player size bounds", "height")
+		c = (w_bound[0] <= boxes[:, 2]) & (boxes[:, 2] <= w_bound[1]) & (
+			h_bound[0] <= boxes[:, 3]) & (boxes[:, 3] <= h_bound[1])
+		bounded_boxes = boxes[c]
+
+		return bounded_boxes
+
+	
+	def __get_players(self, blur_image: im.Image, player_mask: im.Image,
+		candidate_boxes: np.ndarray, grass_colour: np.ndarray) -> np.ndarray:
+		"""
+		Refines the player bounding boxes found from 
+		`__get_candidate_players`. For each candidate player box, the
+		player's dominant colour is calculated. If this colour is too
+		similar to the dominant grass colour, it is removed. If another
+		sufficiently different dominant colour is found, the box is
+		found to contain two players.
+
+		Parameters
+		----------
+		`blur_image` : `image.Image`
+			The blurred football image to find players in, in HSV colour
+			space.
+		`player_mask` : `image.Image`
+			The mask of the candidate player blobs in the football
+			image. See `__get_player_mask` for creating this.
+		`candidate_boxes` : `numpy.ndarray` of shape `(k, 4)`
+			The list of candidate player bounding boxes. Each box is in
+			the form '(x, y, w, h)' where x and y are the location of 
+			the upper left corner of the box in the image and w and h
+			are the width and height of the box respectively.
+		`grass_colour` : `numpy.ndarray` of shape `(3,)`
+			The dominant HSV colour of the grass. If the grass has
+			multiple dominant colours, they should be averaged for each
+			channel.
+
+		Returns
+		-------
+		`numpy.ndarray` of shape `(k, 4)`
+			The list of player bounding boxes.
+		"""
+		# Gets the mask and blur image arrays (which is converted to HSV)
+		mask = player_mask.get()
+		image = blur_image.convert("HSV")
+		if (image is None):
+			image = blur_image.get()
+		else:
+			image = image.get()
+
+		# Fetches the parameters used during the function loop
+		dc_params = self.param("player dominant colour")
+		colour_thresh = self.param("player colour similarity", "threshold")
+		grass_thresh = self.param("player grass similarity", "threshold")
+		mask_params = self.param("player boxes chromatic")
+		mask_params_achromatic = self.param("player boxes achromatic")
+		open_params = self.param("player boxes open")
+		dilate_params = self.param("player boxes dilate")
+		# w_bound = self.param("player size bounds", "width")
+		# h_bound = self.param("player size bounds", "height")
+		hsv_dims = im.COLOUR_SPACES["HSV"]["dimensions"]
+
+		player_colours, player_boxes = [], []
+		for i in range(len(candidate_boxes)):
+			# Gets the current box's mask and image region
+			x, y, w, h = candidate_boxes[i]
+			player_mask = im.Image(mask[y: y + h, x: x + w], "BINARY")
+			player_image = im.Image(image[y: y + h, x: x + w], 
+			   blur_image.colour_space())
+
+			# Finds the player's dominant colour, using the mask to ignore 
+			# grass
+			player_colour = player_image.dominant_colour(mask=player_mask, 
+				**dc_params)
+	
+			# Splits the two dominant colours in the player box
+			colours = [[], []]
+			for j in range(len(player_colour)):
+				colours[0].append(player_colour[j][0])
+				if (player_colour[j].shape[0] > 1):
+					colours[1].append(player_colour[j][1])
+				else:
+					colours[1].append(player_colour[j][0])
+			colours = np.array(colours)
+
+			# Compares the two dominant colours in the player box - if they're
+			# too similar they're averaged and counted as one
+			if not np.allclose(colours[0], colours[1]):
+				colour_similarity = im.Image.hsv_distance(colours[0], 
+					colours[1])
+				if (colour_similarity < colour_thresh):
+					if (colours[0][0] >= hsv_dims[0] // 2):
+						colours[0][0] -= hsv_dims[0]
+					if (colours[1][0] >= hsv_dims[0] // 2):
+						colours[1][0] -= hsv_dims[0]
+					colours = np.array([np.mean(colours, axis=0)])
+					if (colours[0][0] < 0):
+						colours[0][0] += hsv_dims[0]
+
+			else:
+				colours = colours[0:1]
+
+			# Compares the player colours with the grass colour - if they're
+			# too similar the blob is assumed to be noise
+			length = colours.shape[0]
+			for j in range(length):
+				J = length - 1 - j
+				grass_similarity = im.Image.hsv_distance(colours[J], 
+					grass_colour)
+				if (grass_similarity < grass_thresh):
+					colours = np.delete(colours, J, axis=0)
+				else:
+					player_colours.append(colours[J])
+			
+			if (len(colours) > 1):
+				new_boxes = []
+				for j in range(len(colours)):
+					J = length - 1 - j
+					colour_tuple = [colours[J][0:1], colours[J][1:2], colours[J
+						][2:3]]
+					if (colours[J][1] < im.COLOUR_SPACES["HSV"][
+						"achromatic threshold"]):
+						mp = mask_params_achromatic
+					else:
+						mp = deepcopy(mask_params)
+						if (colour_tuple[0][0] - mp["deviations"][0] < 0):
+							colour_tuple[0] = np.append(colour_tuple[0], 
+				   				(hsv_dims[0] + colour_tuple[0][0]))
+							mp["sigma"][0] = np.append(mp["sigma"][0], (1))
+						elif (colour_tuple[0][0] + mp["deviations"][0] >= 
+							hsv_dims[0]):
+							colour_tuple[0] = np.append(colour_tuple[0], (
+								-colour_tuple[0][0]))
+							mp["sigma"][0] = np.append(mp["sigma"][0], (1))
+
+					new_player_mask = player_image.create_mask(colour_tuple, 
+						**mp)
+					new_player_mask = new_player_mask.morphology("open", 
+						**open_params)
+					new_player_mask = new_player_mask.morphology("dilate", 
+						**dilate_params)
+					new_player_mask = np.bitwise_and(player_mask.get(), 
+						new_player_mask.get())
+					new_player_mask = im.Image(new_player_mask, "BINARY")
+					contours = new_player_mask.contours()
+					if (len(contours) != 0):
+						boxes = im.Image.contour_boxes(contours) + [x, y, 0, 0]
+						box_areas = boxes[:, 2] * boxes[:, 3]
+						box = boxes[box_areas.argmax()]
+						new_boxes.append(box)
+
+				player_boxes += new_boxes
+			else:
+				player_boxes.append(candidate_boxes[i])
+
+		return np.array(player_colours), np.array(player_boxes)
+
+
 
 	def get_offsides(self, image: im.Image):
 		"""
@@ -370,6 +813,7 @@ class OffsideDetector:
 		# Create the main line and player masks
 		grey_line_image = line_image.convert("BGR").convert("GREY")
 		line_mask = self.__get_line_mask(grey_line_image, pitch_mask)
+		player_mask = self.__get_player_mask(object_mask, line_mask)
 
 		# Find pitch lines in the line mask
 		pitch_lines = self.__get_lines(line_mask)
@@ -386,3 +830,17 @@ class OffsideDetector:
 			player_mask = player_mask.flip("h")
 			player_image = player_image.flip("h")
 	
+		# Finds candidate player blobs
+		candidate_player_boxes = self.__get_candidate_players(player_mask)
+
+		# Refines these blobs to detect occlusisons, and finds each players colour
+		grass_colour_tuple = np.array((np.mean(grass_colour[0]), np.mean(
+			grass_colour[1]), np.mean(grass_colour[2])))
+		player_colours, player_boxes = self.__get_players(player_image.convert(
+			"HSV"), player_mask, candidate_player_boxes, grass_colour_tuple)
+		player_points = np.stack((player_boxes[:, 0], player_boxes[:, 1] + 
+			player_boxes[:, 3])).T
+
+		# Finds the offside line for each player
+		offside_point = self.__get_offside_point(pitch_lines)
+		player_lines = self.__get_offside_lines(offside_point, player_points)
