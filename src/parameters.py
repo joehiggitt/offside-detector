@@ -74,7 +74,7 @@ DEFAULT_PARAMS: ut.Params_Type = {
 		"iterations": 10,
 	},
 	"player size bounds": {
-		"width": (20, 120),
+		"width": (20, 200),
 		"height": (50, 250),
 	},
 	"player box increase": {

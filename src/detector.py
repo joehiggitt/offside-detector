@@ -22,8 +22,8 @@ class OffsideDetector:
 	Class Methods
 	-------------
 	`OffsideDetector(params: dict)` : `OffsideDetector`
-		Creates an offside detector object for an image of a football
-		match.
+		Creates an offside detector object, used to detect offsides in
+		broadcast football matches.
 	
 	Methods
 	-------
@@ -89,7 +89,7 @@ class OffsideDetector:
 				raise ValueError(f"Parameters provided for operation '{key}'" +
 					+ "are invalid.")
 
-	def param(self, operation: str, param: str=None) -> dict[str, Any] | Any:
+	def param(self, operation: str, param: str=None) -> (dict[str, Any] | Any):
 		"""
 		Returns a parameter or parameter list required by a certain
 		function.
@@ -481,7 +481,7 @@ class OffsideDetector:
 		player_image = player_image.morphology("open", 
 			**self.param("player mask open"))
 		return player_image
-	
+
 	def __get_lines(self, line_mask: im.Image) -> (np.ndarray | None):
 		"""
 		Finds lines in the image, using DBSCAN to refine the results.
@@ -516,6 +516,9 @@ class OffsideDetector:
 			(theta_bound[0] <= lines[:, 1]) & (lines[:, 1] <= theta_bound[1])
 		]
 
+		if ((bounded_lines is None) or (len(bounded_lines) < 2)):
+			return None
+
 		# Clusters lines into distinct groups
 		X = np.dstack((bounded_lines[:, 0] * self.param("lines normalise", 
 			"scale"), bounded_lines[:, 1]))[0]
@@ -533,7 +536,8 @@ class OffsideDetector:
 			"lines number", "number")]
 	
 	
-	def __get_offside_point(self, lines: list[ut.Line_Type]) -> ut.Point_Type:
+	def __get_offside_point(self, lines: list[ut.Line_Type]) -> (ut.Point_Type
+		| None):
 		"""
 		Finds the vanishing point used to calculate offsides around. If
 		two lines are provided, the vanishing point is where they
@@ -554,6 +558,8 @@ class OffsideDetector:
 		`tuple` of two `float`
 			The vanishing point.
 		"""
+		if (len(lines) < 2):
+			return None
 		points = []
 		for i in range(len(lines)):
 			for j in range(i + 1, len(lines)):
@@ -732,8 +738,6 @@ class OffsideDetector:
 					grass_colour)
 				if (grass_similarity < grass_thresh):
 					colours = np.delete(colours, J, axis=0)
-				else:
-					player_colours.append(colours[J])
 			
 			if (len(colours) > 1):
 				new_boxes = []
@@ -771,13 +775,90 @@ class OffsideDetector:
 						box_areas = boxes[:, 2] * boxes[:, 3]
 						box = boxes[box_areas.argmax()]
 						new_boxes.append(box)
+						player_colours.append(colours[J])
 
 				player_boxes += new_boxes
-			else:
+			elif (len(colours) == 1):
 				player_boxes.append(candidate_boxes[i])
+				player_colours.append(colours[0])
 
 		return np.array(player_colours), np.array(player_boxes)
 
+	def __get_team_classifications(self, player_colours: np.ndarray) -> tuple[
+		np.ndarray, tuple[np.ndarray, np.ndarray]]:
+		"""
+		Classfies the players into teams using their dominant HSV colour
+		and the DBSCAN Clustering Algorithm.
+
+		Parameters
+		----------
+		`player_colours` : `numpy.ndarray` of shape `(k, 3)`
+			A list of the `k` dominant HSV colours of each player.
+
+		Returns
+		-------
+		`tuple` of:
+			`numpy.ndarray` of shape `(c, 3)`
+				The average colour of each of the `c` classes.
+			`numpy.ndarray` of shape `(k,)`
+				The classification of each player.
+		"""
+		# Clusters player colours into distinct groups
+		model = DBSCAN(**self.param("player dbscan"), metric=
+			im.Image.hsv_distance).fit(player_colours)
+
+		# Finds the average team colours
+		means = []
+		for i in range(np.amax(model.labels_) + 1):
+			means.append(np.mean(player_colours[model.labels_ == i], axis=0))
+		mean_colours = np.array(means)
+
+		return mean_colours, model.labels_
+
+	def __get_defending_team(self, player_angles: np.ndarray, player_teams: 
+		np.ndarray) -> int:
+		"""
+		Picks the label which best suits the defending team, based on a
+		sample of the players closest to the goal.
+
+		Parameters
+		----------
+		`player_angles` : `numpy.ndarray` of shape `(k,)`
+			A list of the offside angle for each player.
+		`player_teams` : `numpy.ndarray` of shape `(k,)`
+			A list of the team classifications of each player.
+
+		Returns
+		-------
+		`int`
+			The label of the defending team.
+		"""
+		sorted_angles = np.argsort(player_angles)
+
+		# Tallies up the number of players for each team closest to the goal,
+		# assuming the defending team will have more players close to the goal
+		team_count = np.zeros(np.amax(player_teams) + 1)
+		players_to_sample = self.param("defending team", "sample number")
+		for i in range(np.minimum(players_to_sample, sorted_angles.shape[0])):
+			team = player_teams[sorted_angles[i]]
+			if (team != -1):
+				team_count[team] += 1
+
+		# If the two largest classes have an equal number of players, expands
+		# the search until one has more
+		sorted_teams = team_count.argsort()
+		while ((team_count[sorted_teams[0]] == team_count[sorted_teams[1]]) and
+			(i < sorted_angles.shape[0] - 1)):
+			i += 1
+			team = player_teams[sorted_angles[i]]
+			if (team != -1):
+				team_count[team] += 1
+			sorted_teams = team_count.argsort()
+
+		if (team_count[sorted_teams[0]] == team_count[sorted_teams[1]]):
+			return 0
+
+		return team_count.argmax()
 
 
 	def get_offsides(self, image: im.Image):
@@ -820,9 +901,9 @@ class OffsideDetector:
 
 		# If the results found are poor, attempts to reverse the image
 		reverse = False
-		if (pitch_lines is None):
+		if ((pitch_lines is None) or (len(pitch_lines) < 2)):
 			pitch_lines = self.__get_lines(line_mask.flip("h"))
-			if (pitch_lines is None):
+			if ((pitch_lines is None) or (len(pitch_lines) < 2)):
 				return None
 			reverse = True
 
@@ -838,9 +919,24 @@ class OffsideDetector:
 			grass_colour[1]), np.mean(grass_colour[2])))
 		player_colours, player_boxes = self.__get_players(player_image.convert(
 			"HSV"), player_mask, candidate_player_boxes, grass_colour_tuple)
+		if (len(player_boxes) < 1):
+			return None
 		player_points = np.stack((player_boxes[:, 0], player_boxes[:, 1] + 
 			player_boxes[:, 3])).T
 
 		# Finds the offside line for each player
 		offside_point = self.__get_offside_point(pitch_lines)
 		player_lines = self.__get_offside_lines(offside_point, player_points)
+
+		# Classifies the players on kit colour
+		team_colours, player_teams = self.__get_team_classifications(
+			player_colours)
+		if (len(np.bincount(player_teams[player_teams != -1])) < 2):
+			return None
+		
+		# Assigns a defending and attacking team
+		classes = {}
+		classes["defending"] = self.__get_defending_team(player_lines[:, 1],
+			player_teams)
+		non_defenders = player_teams[player_teams != classes["defending"]]
+		classes["attacking"] = np.bincount(non_defenders + 1)[1:].argmax()

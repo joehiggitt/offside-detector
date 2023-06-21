@@ -341,7 +341,7 @@ class Image:
 
 		Parameters
 		----------
-		`colour_space` : `{"BGR", "RGB", "HSV", "GREY", "BINARY"}`
+		`colour_space` : `{"BGR", "RGB", "HSV", "GREY"}`
 			The new colour space of the image.
 
 		Returns
