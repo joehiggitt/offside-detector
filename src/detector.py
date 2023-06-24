@@ -860,6 +860,64 @@ class OffsideDetector:
 
 		return team_count.argmax()
 
+	def __get_offside_object(self, player_angles: np.ndarray, def_class: np.ndarray,
+		is_goalkeeper: bool) -> int:
+		"""
+		Identifies the object which determines offside positions.
+		Usually, this is the second-last player from the goal on the
+		defending team. However if the ball is behind the second-last
+		defender, then the ball is used to determine offsides.
+		
+		If no goalkeeper was found, it is assumed that the furthest back
+		outfield player is the second last man, since the goalkeeper is
+		almost always the furthest back player.
+
+		Parameters
+		----------
+		`player_angles` : `numpy.ndarray` of shape `(k,)`
+			A list of the offside angle for each player.
+		`def_class` : `numpy.ndarray` of shape `(k,)`
+			A boolean array, with a 'True' value for each defending
+			player and 'False' otherwise.
+		`is_goalkeeper` : `bool`
+			A boolean describing whether a goalkeeper was identified
+			(True) or not (False).
+
+		Returns
+		-------
+		`int` of shape `(k, 4)`
+			The index of the last man.
+		"""
+		sorted_angles = np.argsort(player_angles)
+		sorted_def_angles = sorted_angles[def_class[sorted_angles]]
+
+		if is_goalkeeper:
+			return sorted_def_angles[-2]
+		return sorted_def_angles[-1]
+
+		# return np.argmax(player_angles == np.amax(player_angles[def_class]))
+
+	def __determine_offsides(self, offside_angle: float, 
+		attacking_player_angles: np.ndarray) -> np.ndarray:
+		"""
+		Determines if an attacking player is an offside position.
+
+		Parameters
+		----------
+		`offside_angle` : `float`
+			The angle of the object from which the offside is being
+			determined, in radians.
+		`attacking_player_angles` : `numpy.ndarray` of shape `(k,)`
+			A list of the offside angle for each attacking player.
+		
+		Returns
+		-------
+		`numpy.ndarray` of shape `(k,)`
+			A boolean array, with a 'True' value for an onside decision
+			and 'False' for an offside decision, for each player.
+		"""
+		return attacking_player_angles <= offside_angle
+
 
 	def get_offsides(self, image: im.Image):
 		"""
@@ -940,3 +998,16 @@ class OffsideDetector:
 			player_teams)
 		non_defenders = player_teams[player_teams != classes["defending"]]
 		classes["attacking"] = np.bincount(non_defenders + 1)[1:].argmax()
+
+		# Creates labels for the defending and attacking players
+		def_class = player_teams == classes["defending"]
+		att_class = player_teams == classes["attacking"]
+		
+		# Determines the last man and compares attackers to them, finding 
+		# offsides
+		offside_object = self.__get_offside_object(player_lines[:, 1],
+			def_class, is_gk)
+		offside_decisions = self.__determine_offsides(player_lines[
+			offside_object, 1], player_lines[att_class, 1])
+
+		return # Create return object
