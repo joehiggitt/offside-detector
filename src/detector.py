@@ -7,12 +7,234 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-import cv2 as cv
 import image as im
 import utils as ut
 from parameters import DEFAULT_PARAMS
 from sklearn.cluster import DBSCAN
 from copy import deepcopy
+
+
+class OffsideResult:
+	"""
+	A class that stores the result of an offside detection and allows
+	for them to be visualised.
+	
+	Class Methods
+	-------------
+	`OffsideResult(image: image.Image, player_lines: numpy.ndarray,
+	player_boxes: numpy.ndarray, last_man: int, att_class:
+	numpy.ndarray, def_class: numpy.ndarray, offside_decisions: 
+	numpy.ndarray, reverse: bool)` : `OffsideResult`
+		Creates an offside detection result object, used to store the
+		results of the `OffsideDetector` class.
+	
+	Methods
+	-------
+	`get_image()` : `image.Image`
+		Returns the image used for the offside detections.
+	`get_players()` : `dict`
+		Returns the players dictionary, which stores the information for
+		each detected player.
+	`create_visual(**kwargs: dict)` : `image.Image`
+		Displays the offside decisions and player detections found.
+	"""
+	
+	def __init__(self, image: im.Image, player_lines: np.ndarray, player_boxes:
+	    np.ndarray, last_man: int, def_class: np.ndarray, att_class: 
+		np.ndarray, offside_decisions: np.ndarray, reverse: bool):
+		"""
+		Creates an offside detection result object, used to store the
+		results of the `OffsideDetector` class.
+
+		Parameters
+		----------
+		`image` : `image.Image`
+			The football image.
+		`player_lines` : `numpy.ndarray` of shape `(k, 2)`
+			The list of player offside lines. Each line is in the form
+			'(rho, theta)', where 'rho' is the distance from the origin
+			and 'theta' is the line normal from the origin. theta must 
+			be in the interval [0, π) radians (or [0, 180) degrees).
+		`player_boxes` : `numpy.ndarray` of shape `(k, 4)`
+			The list of player bounding boxes. Each box is in the form
+			'(x, y, w, h)' where x and y are the location of the upper
+			left corner of the box in the image and w and h are the
+			width and height of the box respectively.
+		`last_man` : `int`
+			The index of the last man.
+		`def_class` : `numpy.ndarray` of shape `(d,)`
+			The indices of players classified as defenders.
+		`att_class` : `numpy.ndarray` of shape `(a,)`
+			The indices of players classified as attackers.
+		`offside_decisions` : `numpy.ndarray` of shape `(a,)`
+			A boolean array where True indicates the player is onside 
+			and False indicates the player is offside.
+		`reverse` : `bool`
+			Indicates whether the image was flipped (True) or not
+			(False).
+
+		Returns
+		-------
+		`OffsideResult`
+			An offside result object.
+		"""
+		self.__image = image
+		self.__lines = player_lines
+		self.__boxes = player_boxes
+		self.__last_man = last_man
+		self.__classes = (def_class, att_class)
+		self.__decisions = offside_decisions
+		self.__reverse = reverse
+
+		self.__players = {}
+		for i in range(len(player_lines)):
+			self.__players[i] = {}
+			self.__players[i]["line"] = tuple(player_lines[i])
+			self.__players[i]["box"] = tuple(player_boxes[i])
+			self.__players[i]["point"] = (player_boxes[i, 0], player_boxes[i, 1
+				] + player_boxes[i, 3])
+
+			self.__players[i]["last man"] = False
+			if (i == last_man):
+				self.__players[i]["last man"] = True
+
+			self.__players[i]["defending team"] = None
+			if (i in def_class):
+				self.__players[i]["defending team"] = True
+			elif (i in att_class):
+				self.__players[i]["defending team"] = False
+
+			self.__players[i]["offside"] = None
+
+		for i, j in enumerate(att_class):
+			self.__players[j]["offside"] = offside_decisions[i]
+
+	def get_image(self) -> im.Image:
+		"""
+		Returns the image used for the offside detections.
+
+		Returns
+		-------
+		`image.Image`
+			The football image.
+		"""
+		return self.__image
+
+	def get_players(self) -> dict[str, dict[str, (tuple | bool | None)]]:
+		"""
+		Returns the players dictionary, which stores the information for
+		each detected player.
+
+		Returns
+		-------
+		`dict`
+			The player dictionary, which contains the following fields:
+				`"line"` : `tuple` of two `int`
+					The player's offside line.
+				`"box"` : `tuple` of four `int`
+					The player's bounding box.
+				`"point"` : `tuple` of two `int`
+					The player's offside point.
+				`"last man"` : `bool`
+					True if the player is the last man, False otherwise.
+				`"defending team"` : `bool` or `None`
+					True if the player is classified as a defender,
+					False if classified as an attacker, None if
+					classified as neither.
+				`"offside"` : `bool` or `None`
+					True if the player is onside, False if the player is
+					offside, None if the player is not an attacker.
+		"""
+		return self.__players
+
+	def create_visual(self, **kwargs: tuple[int, int, int]) -> im.Image:
+		"""
+		Displays the offside decisions and player detections found.
+
+		Allows for custom colours to be provided for each drawn feature.
+		If colours aren't provided, will draw the last man and attackers
+		using the default colours. Other defenders aren't drawn by
+		default.
+
+		Parameters
+		----------
+		`**kwargs` : `dict`, optional
+			Extra arguments for the output:
+
+			`last_man_colour` : `tuple` of three `int`
+				The BGR colour of the last man.
+			`defending_colour` : `tuple` of three `int`
+				The BGR colour of the defenders.
+			`onside_colour` : `tuple` of three `int`
+				The BGR colour of the onside attackers.
+			`offside_colour` : `tuple` of three `int`
+				The BGR colour of the offside attackers.
+
+		Returns
+		-------
+		`image.Image`
+			The image with the offside detection annotations.
+		"""
+		ALLOWED_KWARGS = {"thickness": int, "last_man_colour": [tuple], 
+		    "defending_colour": [tuple], "onside_colour": [tuple], 
+			"offside_colour": [tuple]}
+		ut.handle_kwargs(kwargs, ALLOWED_KWARGS)
+		
+		offside_img = self.__image
+		if self.__reverse:
+			offside_img = offside_img.flip("h")
+
+		thickness = 2
+		if ("thickness" in kwargs):
+			thickness = kwargs["thickness"]
+
+		offside_img = offside_img.draw_boxes(self.__boxes, (255, 255, 255), thickness)
+
+		if ("defending_colour" in kwargs):
+			defending_colour = kwargs["defending_colour"]
+		
+			# Draw other defenders box and line
+			# offside_img = offside_img.draw_lines(self.__lines[
+			# 	self.__classes[0]], defending_colour, thickness)
+			offside_img = offside_img.draw_boxes(self.__boxes[
+				self.__classes[0]], defending_colour, thickness)
+
+		if ("last_man_colour" in kwargs):
+			last_man_colour = kwargs["last_man_colour"]
+		else:
+			last_man_colour = (255, 0, 0)
+
+		# Draw last man box and line
+		offside_img = offside_img.draw_lines([self.__lines[self.__last_man]],
+			last_man_colour, thickness)
+		offside_img = offside_img.draw_boxes([self.__boxes[self.__last_man]],
+			last_man_colour, thickness)
+
+		if ("onside_colour" in kwargs):
+			onside_colour = kwargs["onside_colour"]
+		else:
+			onside_colour = (0, 255, 0)
+
+		# Draw onside attackers box and line
+		offside_img = offside_img.draw_lines(self.__lines[self.__classes[1]][
+			self.__decisions], onside_colour, thickness)
+		offside_img = offside_img.draw_boxes(self.__boxes[self.__classes[1]][
+			self.__decisions], onside_colour, thickness)
+		
+		if ("offside_colour" in kwargs):
+			offside_colour = kwargs["offside_colour"]
+		else:
+			offside_colour = (0, 0, 255)
+
+		# Draw offside attackers box and line
+		offside_img = offside_img.draw_lines(self.__lines[self.__classes[1]][
+			np.bitwise_not(self.__decisions)], offside_colour, thickness)
+		offside_img = offside_img.draw_boxes(self.__boxes[self.__classes[1]][
+			np.bitwise_not(self.__decisions)], offside_colour, thickness)
+
+		if self.__reverse:
+			offside_img = offside_img.flip("h")
+		return offside_img
 
 
 class OffsideDetector:
@@ -30,7 +252,7 @@ class OffsideDetector:
 	`param(operation: str, param: str)` : `dict` or `Any`
 		Returns a parameter or parameter list required by a certain
 		function.
-	`get_offsides(image: image.Image)` : ``
+	`get_offsides(image: image.Image)` : `OffsideResult`
 		Finds the offsides in a football image.
 	"""
 
@@ -329,10 +551,9 @@ class OffsideDetector:
 			theta = np.rad2deg(theta)
 		return rho, theta
 
-
 	def __get_grass_mask(self, blur_image: im.Image, grass_colour: 
-		ut.Mutiple_Colour_Type = None, grass_sigma: ut.Mutiple_Colour_Type = None
-		) -> im.Image:
+		ut.Mutiple_Colour_Type = None, grass_sigma: ut.Mutiple_Colour_Type =
+		None) -> im.Image:
 		"""
 		Creates a mask of the grass in a football image.
 
@@ -420,7 +641,6 @@ class OffsideDetector:
 		object_image = object_image.morphology("erode",
 			**self.param("object mask erode"))
 		return object_image
-	
 	
 	def __get_line_mask(self, grey_image: im.Image, pitch_mask: im.Image
 		) -> im.Image:
@@ -534,8 +754,7 @@ class OffsideDetector:
 
 		return mean_lines[np.argsort(mean_lines[:, 1]) < self.param(
 			"lines number", "number")]
-	
-	
+
 	def __get_offside_point(self, lines: list[ut.Line_Type]) -> (ut.Point_Type
 		| None):
 		"""
@@ -634,7 +853,6 @@ class OffsideDetector:
 		bounded_boxes = boxes[c]
 
 		return bounded_boxes
-
 	
 	def __get_players(self, blur_image: im.Image, player_mask: im.Image,
 		candidate_boxes: np.ndarray, grass_colour: np.ndarray) -> np.ndarray:
@@ -860,17 +1078,13 @@ class OffsideDetector:
 
 		return team_count.argmax()
 
-	def __get_offside_object(self, player_angles: np.ndarray, def_class: np.ndarray,
-		is_goalkeeper: bool) -> int:
+	def __get_offside_object(self, player_angles: np.ndarray, def_class:
+		np.ndarray) -> int:
 		"""
 		Identifies the object which determines offside positions.
 		Usually, this is the second-last player from the goal on the
 		defending team. However if the ball is behind the second-last
 		defender, then the ball is used to determine offsides.
-		
-		If no goalkeeper was found, it is assumed that the furthest back
-		outfield player is the second last man, since the goalkeeper is
-		almost always the furthest back player.
 
 		Parameters
 		----------
@@ -879,9 +1093,6 @@ class OffsideDetector:
 		`def_class` : `numpy.ndarray` of shape `(k,)`
 			A boolean array, with a 'True' value for each defending
 			player and 'False' otherwise.
-		`is_goalkeeper` : `bool`
-			A boolean describing whether a goalkeeper was identified
-			(True) or not (False).
 
 		Returns
 		-------
@@ -891,8 +1102,6 @@ class OffsideDetector:
 		sorted_angles = np.argsort(player_angles)
 		sorted_def_angles = sorted_angles[def_class[sorted_angles]]
 
-		if is_goalkeeper:
-			return sorted_def_angles[-2]
 		return sorted_def_angles[-1]
 
 		# return np.argmax(player_angles == np.amax(player_angles[def_class]))
@@ -919,19 +1128,23 @@ class OffsideDetector:
 		return attacking_player_angles <= offside_angle
 
 
-	def get_offsides(self, image: im.Image):
+	def get_offsides(self, image: im.Image, swap: bool = False) -> (OffsideResult | None):
 		"""
-		Finds the offsides in a football image.
+		Finds the offsides in a broadcast football image.
 
 		Parameters
 		----------
 		`image` : `image.Image`
 			The football image.
+		`swap` : `bool`
+			Swaps the defending and attacking teams.
 		
 		Returns
 		-------
-		`x`
-			x
+		`OffsideResult`
+			A result object containing the findings.
+		`None`
+			If no results could be found.
 		"""
 		# Blur images for line and player detection
 		line_image = image.blur(**self.param("lines blur"))
@@ -999,6 +1212,11 @@ class OffsideDetector:
 		non_defenders = player_teams[player_teams != classes["defending"]]
 		classes["attacking"] = np.bincount(non_defenders + 1)[1:].argmax()
 
+		if swap:
+			temp = classes["defending"]
+			classes["defending"] = classes["attacking"]
+			classes["attacking"] = temp
+
 		# Creates labels for the defending and attacking players
 		def_class = player_teams == classes["defending"]
 		att_class = player_teams == classes["attacking"]
@@ -1006,8 +1224,10 @@ class OffsideDetector:
 		# Determines the last man and compares attackers to them, finding 
 		# offsides
 		offside_object = self.__get_offside_object(player_lines[:, 1],
-			def_class, is_gk)
+			def_class)
 		offside_decisions = self.__determine_offsides(player_lines[
 			offside_object, 1], player_lines[att_class, 1])
 
-		return # Create return object
+		return OffsideResult(image, player_lines, player_boxes, offside_object,
+			np.arange(def_class.shape[0])[def_class], np.arange(
+			att_class.shape[0])[att_class], offside_decisions, reverse)
