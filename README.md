@@ -1,7 +1,10 @@
 # Tracking Football Players - Offside Detector
-A project aiming to identify football players in broadcast images of football matches and classify them as offside or not. I completed this work for my third-year project, as part of my MEng Computer Science degree at the University of Manchester.
+A project aiming to identify football players in broadcast images of football matches and classify them as offside or not. I completed this work for my third-year dissertation project, as part of my MEng (Hons) Computer Science degree at the University of Manchester.
 
 This README provides instructions on how to install and use the offside detector.
+
+## Version
+This tool is currently at version 1.0.
 
 ## Requirements
 - Python 3.11
@@ -25,8 +28,22 @@ Once cloned, install the Python requirements with PIP.
 $ pip install -r requirements.txt
 ```
 
-## Structure of the Code
-The code to run the offside detector is located in the `/src/` directory. There are four Python files: `image.py`, `detector.py`, `utils.py` and `parameters.py`.
+## Project Structure
+This project repository contains the following:
+
+    offside-detector/
+    ├── src/
+    │   ├── image.py        - code for storing images
+    │   ├── detector.py     - code for detecting offsides
+    │   ├── utils.py        - code containing generic functions
+    │   ├── parameters.py   - code containing parameter dictionary
+    │   └── run.py          - code for running CLI
+    ├── .gitignore
+    ├── README.md
+    └── requirements.txt    - list of project requirements
+
+
+The code to run the offside detector is located in the `/src` directory. There are five Python files: `image.py`, `detector.py`, `utils.py`, `parameters.py` and `run.py`.
 
 - `image.py` contains code which encapsulates OpenCV images into a data structure that also keeps track of colour space information. This class provides many methods which call OpenCV operations on the image.
 
@@ -36,8 +53,27 @@ The code to run the offside detector is located in the `/src/` directory. There 
 
 - `parameters.py` contains a dictionary called `DEFAULT_PARAMS`, which is used as the default parameter data structure in `OffsideDetector`. To use different parameter values, either create a new parameter dictionary and pass that in to `OffsideDetector` (this must have the same format as `DEFAULT_PARAMS`) or directly edit the values in `parameters.py`.
 
-## Running the Code
+- `run.py` provides a command line interface to run the project with.
 
+## Running the Code
+### CLI Usage
+To run the program using `run.py`, use the following command:
+
+    $ python run.py -i "input_image" [-o "output_image"] [-p "parameter_dictionary"]
+
+The command line interface has the following options:
+
+    -i, --file_in "input_image"
+        The path to the input image file. Can be ".jpg" or ".png". Required.
+    -o, --file_out "output_image"
+        The path to the output image file. Can be ".jpg" or ".png". Optional.
+    -p, --params "parameter_dictionary"
+        Name of parameter dictionary to use, defined inside parameters.py. Default is 'DEFAULT_PARAMS'.
+    -h, --help
+        Shows a help message and exits.
+
+
+### Using with Other Code
 The following code shows how an offside can be detected using the code.
 
 ```
