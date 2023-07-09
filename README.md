@@ -4,7 +4,7 @@ A project aiming to identify football players in broadcast images of football ma
 This README provides instructions on how to install and use the offside detector.
 
 ## Report & Screencast
-In addition to writing the project code, this project involved writing a 10,000 word report and an 8 minute video explaining the project. The report has been included in this repository (under `offside-detector/Report.pdf`). Both the report and screencast can also be accessed through the following link: https://1drv.ms/f/s!Ast9SE_pAWg69AaCPK7Xhe58O0f7?e=eeohWP.
+In addition to writing the project code, this project involved writing a 10,000 word report and creating an 8 minute video explaining the project. The report has been included in this repository (`offside-detector/Report.pdf`). Both the report and screencast can also be accessed through the following link: https://1drv.ms/f/s!Ast9SE_pAWg69AaCPK7Xhe58O0f7?e=eeohWP.
 
 ## Version
 This tool is currently at version 1.0.
